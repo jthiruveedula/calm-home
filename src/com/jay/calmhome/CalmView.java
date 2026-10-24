@@ -102,6 +102,14 @@ final class CalmView extends View {
     private float amb;
     /** 1 right after Select, decaying to 0: the focused item dips a little, like a real button. */
     private float press;
+    /** Toggle knob positions (0 off .. 1 on) by item id, so switches slide instead of jumping. */
+    private final Map<String, float[]> knobs = new java.util.HashMap<>();
+    private final Runnable tick = new Runnable() {
+        @Override
+        public void run() {
+            invalidate();
+        }
+    };
 
     private long clockMinute = -1;
     private int minuteOfDay;
@@ -624,6 +632,17 @@ final class CalmView extends View {
         parX += (parGoalX - parX) * kp;
         parY += (parGoalY - parY) * kp;
         if (Math.abs(parGoalX - parX) > 0.05f || Math.abs(parGoalY - parY) > 0.05f) moving = true;
+        for (Item it : items) {
+            if (it.kind != TOGGLE) continue;
+            float[] kb = knobs.get(it.id);
+            if (kb == null) knobs.put(it.id, kb = new float[]{it.on ? 1f : 0f});
+            float tgt = it.on ? 1f : 0f;
+            if (kb[0] != tgt) {
+                kb[0] += (tgt - kb[0]) * (1f - (float) Math.exp(-dt / 55f));
+                if (Math.abs(tgt - kb[0]) < 0.01f) kb[0] = tgt;
+                moving = true;
+            }
+        }
         if (press > 0f) {
             press = Math.max(0f, press - dt / 160f);
             moving = true;
@@ -684,8 +703,15 @@ final class CalmView extends View {
             if (dim > 0.004f) c.drawColor(((int) (dim * 255f) << 24));
         }
         boolean fading = now - sceneSince < Scenes.FADE_MS;
-        long delay = (st.motion() != 2 || fading || moving) ? 33L : 500L;
-        postInvalidateDelayed(delay);
+        // Interaction runs at the display's own rate; the slow scene drift alone needs far less.
+        // One pending tick at a time: separate delayed invalidates used to stack into parallel
+        // redraw chains, so an idle screen drew about twice as often as intended.
+        removeCallbacks(tick);
+        if (moving || fading) {
+            postOnAnimation(tick);
+        } else {
+            postDelayed(tick, st.motion() == 2 ? 500L : amb >= 1f ? 83L : 42L);
+        }
     }
 
     /** @return true while an entrance is still animating */
@@ -1043,10 +1069,12 @@ final class CalmView extends View {
         g.label(c, it.label, 22f, 42f, 24f, g.medium, 0xFFFFFFFF, Paint.Align.LEFT);
         g.label(c, AppRepo.fit(it.sub, g.text, w - 130f), 22f, 70f, 18f, g.regular, 0xCCFFFFFF, Paint.Align.LEFT);
         float tx = w - 22f - 60f, ty = h / 2f - 17f;
-        g.fill.setColor(it.on ? st.accent() : 0x40FFFFFF);
+        float[] kb = knobs.get(it.id);
+        float k = kb != null ? kb[0] : it.on ? 1f : 0f;
+        g.fill.setColor(k >= 0.5f ? st.accent() : 0x40FFFFFF);
         c.drawRoundRect(tx, ty, tx + 60f, ty + 34f, 17f, 17f, g.fill);
         g.fill.setColor(0xFFFFFFFF);
-        c.drawCircle(it.on ? tx + 60f - 17f : tx + 17f, ty + 17f, 14f, g.fill);
+        c.drawCircle(tx + 17f + k * 26f, ty + 17f, 14f, g.fill);
     }
 
     // ---- remote control ---------------------------------------------------------------------
