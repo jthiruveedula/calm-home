@@ -320,7 +320,7 @@ final class CalmView extends View {
                 {Settings.DATE, "Date", "Weekday and day"},
                 {Settings.GREETING, "Greeting", "Hello by time of day"},
                 {Settings.PROFILE, "Profile", "Your name on Home"},
-                {Settings.PHOTO, "Photo controls", "Scene name and arrows"},
+                {Settings.PHOTO, "Photo controls", "Name and arrows"},
                 {Settings.QUIET, "Quiet hours", "Dim 11 pm to 6:30 am"},
         };
         for (int i = 0; i < defs.length; i++) {
@@ -543,6 +543,7 @@ final class CalmView extends View {
         else drawCustomStatic(c);
         for (int i = 0; i < items.size(); i++) {
             Item it = items.get(i);
+            if (i == focus) continue; // drawn once, on top, by drawFocus
             if (it.t + it.h + camY < -40f || it.t + camY > H + 40f) continue;
             c.save();
             c.translate(it.l, it.t);
@@ -633,9 +634,9 @@ final class CalmView extends View {
         g.label(c, on + " on", 904f, 276f, 20f, g.regular, 0xCCFFFFFF, Paint.Align.RIGHT);
         g.label(c, "Background", 1016f, 278f, 32f, g.medium, 0xFFFFFFFF, Paint.Align.LEFT);
         String[] titles = {"Scenes", "Motion", "Change scene every", "Glass", "Accent"};
-        float[] ys = {332f, 510f, 632f, 754f, 876f};
+        float[] ys = {329f, 507f, 629f, 751f, 873f}; // baselines, 19 units above each control row
         for (int i = 0; i < titles.length; i++) {
-            g.label(c, titles[i], 1016f, ys[i] + 12f, 20f, g.regular, 0xD9FFFFFF, Paint.Align.LEFT);
+            g.label(c, titles[i], 1016f, ys[i], 20f, g.regular, 0xD9FFFFFF, Paint.Align.LEFT);
         }
     }
 
