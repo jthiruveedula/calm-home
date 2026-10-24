@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 
@@ -53,7 +54,7 @@ final class CalmView extends View {
         TileArt art;
         boolean on, pinned, dark;
         int color, icon;
-        Shader shade;
+        Shader shade, glow;
         Runnable select, menu;
 
         Item(int kind, String id, float l, float t, float w, float h) {
@@ -99,6 +100,8 @@ final class CalmView extends View {
     private long lastInput = SystemClock.uptimeMillis();
     private boolean ambientOn, swallowUp;
     private float amb;
+    /** 1 right after Select, decaying to 0: the focused item dips a little, like a real button. */
+    private float press;
 
     private long clockMinute = -1;
     private int minuteOfDay;
@@ -167,7 +170,11 @@ final class CalmView extends View {
         rebuild("app:" + pkg);
     }
 
+    private static final String TAG = "CalmHome";
+    private static final String[] SCREENS = {"home", "apps", "custom", "quick"};
+
     private void go(int to) {
+        Log.i(TAG, "screen " + SCREENS[to]);
         screen = to;
         camY = camGoal = 0f;
         screenSince = SystemClock.uptimeMillis();
@@ -301,6 +308,9 @@ final class CalmView extends View {
         it.shade = new LinearGradient(it.l, it.t, it.l + it.w, it.t + it.h,
                 new int[]{(tint & 0xFFFFFF) | 0xB0000000, (tint & 0xFFFFFF) | 0x40000000, 0x26000000},
                 new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP);
+        it.glow = new android.graphics.RadialGradient(it.l + it.w - 110f, it.t + it.h * 0.45f, 330f,
+                new int[]{(tint & 0xFFFFFF) | 0x80000000, (tint & 0xFFFFFF) | 0x26000000, tint & 0xFFFFFF},
+                new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP);
     }
 
     private void appItem(Item it, final AppEntry e) {
@@ -363,16 +373,20 @@ final class CalmView extends View {
     private void buildQuick() {
         contentH = H;
         Object[][] rows = {
+                // Only screens Fire OS lets a third-party app open (checked on a Fire TV Stick 4K);
+                // display, sound and privacy need Amazon's signature permission, so they stay
+                // behind All settings.
                 {"Wi-Fi & network", "Connect or change networks", Gfx.ICON_WIFI, "android.settings.WIFI_SETTINGS"},
-                {"Display & sounds", "Resolution, HDR and audio", Gfx.ICON_DISPLAY, "android.settings.DISPLAY_SETTINGS"},
+                {"Remotes & Bluetooth", "Pair a remote, headphones, a game pad", Gfx.ICON_REMOTE, "com.amazon.device.settings.action.CONTROLLERS"},
                 {"Applications", "Storage, updates, force stop", Gfx.ICON_GRID, "android.settings.APPLICATION_SETTINGS"},
+                {"My Fire TV", "System updates, restart, about", Gfx.ICON_DISPLAY, "com.amazon.device.settings.action.DEVICE"},
                 {"Ambient screen", "A calm clock over your scenes", Gfx.ICON_MOON, "#ambient"},
                 {"Customize Calm Home", "Clock, scenes, glass, accent", Gfx.ICON_SLIDERS, "#custom"},
-                {"All settings", "Everything else on this Fire TV", Gfx.ICON_GEAR, null},
+                {"All settings", "Display, sound, privacy and ads", Gfx.ICON_GEAR, null},
         };
         for (int i = 0; i < rows.length; i++) {
             final String action = (String) rows[i][3];
-            Item r = add(new Item(ROW, "q:" + i, PANEL_L + 32f, 236f + i * 116f, PANEL_R - PANEL_L - 64f, 100f));
+            Item r = add(new Item(ROW, "q:" + i, PANEL_L + 32f, 226f + i * 110f, PANEL_R - PANEL_L - 64f, 96f));
             r.label = (String) rows[i][0];
             r.sub = (String) rows[i][1];
             r.icon = (Integer) rows[i][2];
@@ -610,6 +624,10 @@ final class CalmView extends View {
         parX += (parGoalX - parX) * kp;
         parY += (parGoalY - parY) * kp;
         if (Math.abs(parGoalX - parX) > 0.05f || Math.abs(parGoalY - parY) > 0.05f) moving = true;
+        if (press > 0f) {
+            press = Math.max(0f, press - dt / 160f);
+            moving = true;
+        }
         float ka = 1f - (float) Math.exp(-dt / 380f);
         float target = ambientOn ? 1f : 0f;
         amb += (target - amb) * ka;
@@ -640,6 +658,7 @@ final class CalmView extends View {
         autoScene(now);
         if (!ambientOn && screen == HOME && st.flag(Settings.AMBIENT) && Ambient.idle(now, lastInput, Ambient.IDLE_MS)) {
             ambientOn = true;
+            Log.i(TAG, "ambient on (idle)");
         }
         boolean moving = step(dt);
         c.drawColor(INK);
@@ -676,13 +695,9 @@ final class CalmView extends View {
         c.save();
         c.translate(0f, camY);
         if (screen == QUICK) {
+            // Only Home's text shows under the scrim: redrawing every glass tile beneath an
+            // opaque panel cost a 2018 stick ~10% janky frames for no visible gain.
             drawHomeStatic(c);
-            for (Item it : under) {
-                c.save();
-                c.translate(it.l, it.t);
-                drawItem(c, it, 0f);
-                c.restore();
-            }
             float in = Motion.easeOut(since / 320f);
             moving = in < 1f;
             g.fill.setShader(null);
@@ -835,8 +850,9 @@ final class CalmView extends View {
                     r + grow, r + grow, g.fill);
         }
         c.save();
+        float dip = 1f - 0.045f * (float) Math.sin(Math.PI * press);
         c.translate(fNow.centerX(), fNow.centerY());
-        c.scale(fNow.width() / it.w, fNow.height() / it.h);
+        c.scale(fNow.width() / it.w * dip, fNow.height() / it.h * dip);
         c.translate(-it.w / 2f, -it.h / 2f);
         drawItem(c, it, 1f);
         c.restore();
@@ -933,15 +949,13 @@ final class CalmView extends View {
             c.drawRoundRect(0f, 0f, w, h, 40f, 40f, g.fill);
             g.fill.setShader(null);
         }
-        if (it.art != null) {
-            // A huge, faint copy of the icon bleeding off the right edge, for depth.
-            c.save();
-            c.clipRect(0f, 0f, w - 2f, h - 2f);
-            int alpha = g.img.getAlpha();
-            g.img.setAlpha(46);
-            drawArt(c, it.art, w - 250f, h / 2f - 150f, 300f, 64f);
-            g.img.setAlpha(alpha);
-            c.restore();
+        if (it.glow != null) {
+            // A soft pool of the app's own colour behind the right half, for depth.
+            g.matrix().setTranslate(-it.l, -it.t);
+            it.glow.setLocalMatrix(g.matrix());
+            g.fill.setShader(it.glow);
+            c.drawRoundRect(0f, 0f, w, h, 40f, 40f, g.fill);
+            g.fill.setShader(null);
         }
         drawIcon(c, it, 36f, 36f, 104f, 26f);
         g.text.setLetterSpacing(-0.015f);
@@ -1055,6 +1069,7 @@ final class CalmView extends View {
 
     private void pinFocused() {
         if (focus < 0 || focus >= items.size()) return;
+        Log.i(TAG, "menu " + items.get(focus).id);
         Runnable menu = items.get(focus).menu;
         if (menu != null) menu.run();
     }
@@ -1065,6 +1080,7 @@ final class CalmView extends View {
         if (ambientOn || swallowUp) {
             // The first press only wakes the screen; its release must not also act.
             if (ambientOn) {
+                Log.i(TAG, "ambient off (key)");
                 ambientOn = false;
                 swallowUp = true;
                 invalidate();
@@ -1123,6 +1139,9 @@ final class CalmView extends View {
         if (isSelect(code)) {
             if (!longFired && ev.isTracking() && !ev.isCanceled() && focus >= 0 && focus < items.size()) {
                 Runnable select = items.get(focus).select;
+                press = 1f;
+                Log.i(TAG, "select " + items.get(focus).id);
+                postInvalidateOnAnimation();
                 if (select != null) select.run();
             }
             longFired = false;

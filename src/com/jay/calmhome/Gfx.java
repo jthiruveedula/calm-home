@@ -17,7 +17,7 @@ import android.graphics.Typeface;
  */
 final class Gfx {
     static final int ICON_GEAR = 0, ICON_SLIDERS = 1, ICON_PREV = 2, ICON_NEXT = 3, ICON_GRID = 4,
-            ICON_WIFI = 5, ICON_DISPLAY = 6, ICON_MOON = 7, ICON_PLAY = 8;
+            ICON_WIFI = 5, ICON_DISPLAY = 6, ICON_MOON = 7, ICON_PLAY = 8, ICON_SHIELD = 9, ICON_REMOTE = 10;
 
     final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -171,6 +171,22 @@ final class Gfx {
                 path.lineTo(12f, 19.5f);
                 path.moveTo(8f, 19.5f);
                 path.lineTo(16f, 19.5f);
+                break;
+            case ICON_REMOTE:
+                path.addRoundRect(new RectF(8f, 2.5f, 16f, 21.5f), 4f, 4f, Path.Direction.CW);
+                path.addCircle(12f, 8f, 2.2f, Path.Direction.CW);
+                path.addCircle(12f, 14f, 0.6f, Path.Direction.CW);
+                path.addCircle(12f, 17.5f, 0.6f, Path.Direction.CW);
+                break;
+            case ICON_SHIELD:
+                path.moveTo(12f, 3f);
+                path.lineTo(19.5f, 6f);
+                path.cubicTo(19.5f, 13f, 16.5f, 18f, 12f, 21f);
+                path.cubicTo(7.5f, 18f, 4.5f, 13f, 4.5f, 6f);
+                path.close();
+                path.moveTo(8.8f, 12f);
+                path.lineTo(11.2f, 14.4f);
+                path.lineTo(15.4f, 9.6f);
                 break;
             case ICON_MOON:
                 path.addPath(moon);
