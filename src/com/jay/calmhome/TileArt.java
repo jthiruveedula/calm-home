@@ -4,17 +4,13 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
 import android.graphics.Shader;
 
-/** A tile's pre-rendered 16:9 artwork, its shader for rounded drawing, and the glow colour it casts. */
+/** An app's icon, pre-rendered square, with a shader so tiles can draw it rounded without clipping. */
 final class TileArt {
     final Bitmap bitmap;
     final BitmapShader shader;
-    final int glow;
-    final boolean banner;
 
-    TileArt(Bitmap bitmap, int averageRgb, boolean banner) {
+    TileArt(Bitmap bitmap) {
         this.bitmap = bitmap;
         this.shader = new BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-        this.glow = Ambient.glowFrom(averageRgb);
-        this.banner = banner;
     }
 }

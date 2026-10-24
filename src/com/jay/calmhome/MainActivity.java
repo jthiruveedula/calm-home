@@ -6,7 +6,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
@@ -16,31 +15,25 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.widget.Toast;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Hosts the home screen. App discovery and tile art run on one background thread; the art cache
- * is only ever touched there, so no locks are needed.
+ * Hosts the UI. App discovery and icon rendering run on one background thread; the icon cache is
+ * only ever touched there, so no locks are needed.
  */
-public final class MainActivity extends Activity implements HomeView.Listener {
-    private static final String PREFS = "calm", KEY_PINS = "pins";
-
-    private HomeView view;
-    private SharedPreferences prefs;
+public final class MainActivity extends Activity implements CalmView.Host {
+    private CalmView view;
+    private com.jay.calmhome.Settings settings;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private HandlerThread worker;
     private Handler bg;
     private final Map<String, TileArt> artCache = new HashMap<>(); // loader thread only
     private int generation;
     private Toast toast;
-
-    private List<AppEntry> lastApps = Collections.emptyList();
-    private List<AppEntry> lastDock = Collections.emptyList();
-    private Map<String, TileArt> lastArt = Collections.emptyMap();
+    private List<AppEntry> lastApps = java.util.Collections.emptyList();
 
     private final BroadcastReceiver packages = new BroadcastReceiver() {
         @Override
@@ -58,7 +51,7 @@ public final class MainActivity extends Activity implements HomeView.Listener {
                     }
                 });
             }
-            refresh(null);
+            refresh();
         }
     };
 
@@ -72,9 +65,9 @@ public final class MainActivity extends Activity implements HomeView.Listener {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        view = new HomeView(this);
-        view.setListener(this);
+        settings = new com.jay.calmhome.Settings(this);
+        view = new CalmView(this);
+        view.init(settings, this);
         setContentView(view);
         view.requestFocus();
         worker = new HandlerThread("calm-loader", android.os.Process.THREAD_PRIORITY_BACKGROUND);
@@ -103,7 +96,13 @@ public final class MainActivity extends Activity implements HomeView.Listener {
     @Override
     protected void onResume() {
         super.onResume();
-        refresh(null);
+        refresh();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        view.showHome();
     }
 
     @Override
@@ -119,8 +118,8 @@ public final class MainActivity extends Activity implements HomeView.Listener {
         super.onDestroy();
     }
 
-    /** Re-reads installed apps on the loader thread, then swaps the tiles in on the UI thread. */
-    private void refresh(final String restorePkg) {
+    /** Re-reads installed apps on the loader thread, then swaps them in on the UI thread. */
+    private void refresh() {
         final int gen = ++generation;
         final PackageManager pm = getPackageManager();
         final String self = getPackageName();
@@ -135,7 +134,7 @@ public final class MainActivity extends Activity implements HomeView.Listener {
                         try {
                             t = AppRepo.makeArt(pm, e);
                         } catch (RuntimeException | OutOfMemoryError ex) {
-                            t = null; // the tile falls back to a plain labelled card
+                            t = null; // the tile falls back to a plain placeholder
                         }
                         if (t != null) artCache.put(e.key(), t);
                     }
@@ -147,57 +146,50 @@ public final class MainActivity extends Activity implements HomeView.Listener {
                     public void run() {
                         if (gen != generation || isDestroyed()) return;
                         lastApps = apps;
-                        lastArt = snapshot;
-                        apply(restorePkg);
+                        view.setData(apps, snapshot);
                     }
                 });
             }
         });
     }
 
-    private void apply(String restorePkg) {
-        AppOrder.Split split = AppOrder.split(lastApps, pins(), HomeView.MAX_DOCK);
-        lastDock = split.dock;
-        view.setData(split.dock, split.grid, lastArt, restorePkg);
-    }
-
-    private List<String> pins() {
-        return AppOrder.parsePins(prefs.getString(KEY_PINS, AppOrder.DEFAULT_PINS));
-    }
-
     @Override
-    public void onLaunch(AppEntry e) {
+    public void launch(AppEntry e) {
         Intent i = new Intent(Intent.ACTION_MAIN)
                 .addCategory(e.leanback ? Intent.CATEGORY_LEANBACK_LAUNCHER : Intent.CATEGORY_LAUNCHER)
                 .setComponent(new ComponentName(e.pkg, e.activity))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-        if (start(i)) return;
-        PackageManager pm = getPackageManager();
-        Intent alt = pm.getLeanbackLaunchIntentForPackage(e.pkg);
-        if (alt == null) alt = pm.getLaunchIntentForPackage(e.pkg);
-        if (alt != null && start(alt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))) return;
-        say("Couldn't open " + e.label);
+        boolean ok = start(i);
+        if (!ok) {
+            PackageManager pm = getPackageManager();
+            Intent alt = pm.getLeanbackLaunchIntentForPackage(e.pkg);
+            if (alt == null) alt = pm.getLaunchIntentForPackage(e.pkg);
+            ok = alt != null && start(alt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        }
+        if (ok) settings.log(LaunchLog.record(settings.log(), e.pkg));
+        else say("Couldn't open " + e.label);
     }
 
     @Override
-    public void onTogglePin(AppEntry e) {
-        List<String> next = AppOrder.togglePin(pins(), lastDock, e.pkg, HomeView.MAX_DOCK);
+    public void togglePin(AppEntry e) {
+        List<String> pins = AppOrder.parsePins(settings.pins());
+        List<String> next = AppOrder.togglePin(pins, view.dockApps(), e.pkg, CalmView.MAX_DOCK);
         if (next == null) {
-            say("Favourites are full. Unpin one first.");
+            say("Favorites are full. Unpin one first.");
             return;
         }
-        prefs.edit().putString(KEY_PINS, AppOrder.joinPins(next)).apply();
-        say(next.contains(e.pkg) ? e.label + " added to favourites" : e.label + " removed from favourites");
-        apply(e.pkg);
+        settings.pins(AppOrder.joinPins(next));
+        say(next.contains(e.pkg) ? e.label + " added to Favorites" : e.label + " removed from Favorites");
+        view.pinsChanged(e.pkg);
     }
 
     @Override
-    public void onSettings() {
+    public void openSettings() {
         Intent s = new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         if (s.resolveActivity(getPackageManager()) != null && start(s)) return;
         for (AppEntry e : lastApps) {
             if (e.pkg.contains(".settings")) {
-                onLaunch(e);
+                launch(e);
                 return;
             }
         }
