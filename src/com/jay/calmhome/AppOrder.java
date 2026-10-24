@@ -63,6 +63,47 @@ public final class AppOrder {
         return new Split(Collections.unmodifiableList(dock), Collections.unmodifiableList(grid));
     }
 
+    public static final int SORT_RECENT = 0, SORT_AZ = 1, SORT_PINNED = 2;
+
+    /**
+     * Every app once, for the All apps screen. Recent: apps opened from Calm Home first (newest
+     * first), then the rest A-Z. Pinned first: favourites in pin order, then A-Z.
+     */
+    public static List<AppEntry> allApps(List<AppEntry> apps, List<String> pins, int mode, String launchLog) {
+        List<AppEntry> list = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (AppEntry e : apps) {
+            if (e != null && !HIDDEN.contains(e.pkg) && seen.add(e.pkg)) list.add(e);
+        }
+        Collections.sort(list, BY_LABEL);
+        if (mode == SORT_RECENT) {
+            final Map<String, Integer> rank = LaunchLog.ranks(launchLog);
+            Collections.sort(list, new Comparator<AppEntry>() {
+                @Override
+                public int compare(AppEntry a, AppEntry b) {
+                    Integer ra = rank.get(a.pkg), rb = rank.get(b.pkg);
+                    if (ra != null && rb != null) return ra.compareTo(rb);
+                    if (ra != null) return -1;
+                    if (rb != null) return 1;
+                    return BY_LABEL.compare(a, b);
+                }
+            });
+        } else if (mode == SORT_PINNED) {
+            final List<String> order = pins;
+            Collections.sort(list, new Comparator<AppEntry>() {
+                @Override
+                public int compare(AppEntry a, AppEntry b) {
+                    int ia = order.indexOf(a.pkg), ib = order.indexOf(b.pkg);
+                    if (ia >= 0 && ib >= 0) return ia - ib;
+                    if (ia >= 0) return -1;
+                    if (ib >= 0) return 1;
+                    return BY_LABEL.compare(a, b);
+                }
+            });
+        }
+        return list;
+    }
+
     /** Parses the stored pin list, dropping anything that is not a plain package name. */
     public static List<String> parsePins(String raw) {
         List<String> out = new ArrayList<>();
