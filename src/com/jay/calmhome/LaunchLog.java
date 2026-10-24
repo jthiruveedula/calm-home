@@ -50,4 +50,56 @@ public final class LaunchLog {
         }
         return sb.toString();
     }
+
+    /** "pkg=millis,..." newest first; records when each app was last opened. */
+    public static String recordTime(String raw, String pkg, long now) {
+        List<String> keep = new ArrayList<>();
+        if (pkg != null && PKG.matcher(pkg).matches() && now > 0) keep.add(pkg + "=" + now);
+        if (raw != null) {
+            for (String part : raw.split(",")) {
+                int eq = part.indexOf('=');
+                if (eq <= 0) continue;
+                String p = part.substring(0, eq).trim();
+                if (p.equals(pkg) || !PKG.matcher(p).matches() || parseTime(part.substring(eq + 1)) < 0) continue;
+                boolean dup = false;
+                for (String k : keep) dup |= k.startsWith(p + "=");
+                if (!dup) keep.add(p + "=" + part.substring(eq + 1).trim());
+                if (keep.size() >= MAX) break;
+            }
+        }
+        return join(keep);
+    }
+
+    /** When pkg was last opened, or -1. */
+    public static long timeOf(String raw, String pkg) {
+        if (raw == null || pkg == null) return -1;
+        for (String part : raw.split(",")) {
+            int eq = part.indexOf('=');
+            if (eq > 0 && part.substring(0, eq).trim().equals(pkg)) return parseTime(part.substring(eq + 1));
+        }
+        return -1;
+    }
+
+    private static long parseTime(String s) {
+        try {
+            long v = Long.parseLong(s.trim());
+            return v > 0 ? v : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** "Just now", "12 min ago", "3 h ago", "Yesterday", "4 days ago"; "" when unknown or in the future. */
+    public static String ago(long then, long now) {
+        if (then <= 0 || now < then - 60000L) return "";
+        long min = Math.max(0L, now - then) / 60000L;
+        if (min < 1) return "Just now";
+        if (min < 60) return min + " min ago";
+        long h = min / 60;
+        if (h < 24) return h + " h ago";
+        long d = h / 24;
+        if (d == 1) return "Yesterday";
+        if (d < 30) return d + " days ago";
+        return "A while ago";
+    }
 }

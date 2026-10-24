@@ -14,9 +14,18 @@ import java.util.regex.Pattern;
 public final class AppOrder {
     private AppOrder() {}
 
-    /** Netflix, Prime Video, YouTube, Apple TV: the owner's everyday apps. */
+    /** Netflix, Prime Video, SmartTube (ad-free YouTube), Apple TV: the owner's everyday apps. */
     public static final String DEFAULT_PINS =
-            "com.netflix.ninja,com.amazon.firebat,com.amazon.firetv.youtube,com.apple.atve.amazon.appletv";
+            "com.netflix.ninja,com.amazon.firebat,org.smarttube.stable,com.apple.atve.amazon.appletv";
+
+    /** An uninstalled app whose pin should pass to its replacement. */
+    public static final Map<String, String> SUCCESSOR;
+
+    static {
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put("com.amazon.firetv.youtube", "org.smarttube.stable");
+        SUCCESSOR = Collections.unmodifiableMap(m);
+    }
 
     /** Never shown as tiles: Amazon's own home screen would only bounce back to itself. */
     public static final Set<String> HIDDEN = Collections.unmodifiableSet(new HashSet<String>(
@@ -142,5 +151,37 @@ public final class AppOrder {
         out.removeAll(Collections.singleton(pkg));
         out.add(pkg);
         return out;
+    }
+
+    /**
+     * Hands a pin from an app that is gone to its installed successor, keeping its position.
+     * Pins of apps that are merely missing are kept, so they come back if the app is reinstalled.
+     */
+    public static List<String> migratePins(List<String> pins, Set<String> installed) {
+        List<String> out = new ArrayList<>();
+        for (String p : pins) {
+            String next = SUCCESSOR.get(p);
+            boolean pass = next != null && !installed.contains(p) && installed.contains(next)
+                    && !pins.contains(next) && !out.contains(next);
+            String v = pass ? next : p;
+            if (!out.contains(v)) out.add(v);
+        }
+        return out;
+    }
+
+    /** The dock app opened most recently from Calm Home, or the first one; -1 for an empty dock. */
+    public static int hero(List<AppEntry> dock, String launchLog) {
+        if (dock.isEmpty()) return -1;
+        Map<String, Integer> rank = LaunchLog.ranks(launchLog);
+        int best = 0;
+        Integer bestRank = null;
+        for (int i = 0; i < dock.size(); i++) {
+            Integer r = rank.get(dock.get(i).pkg);
+            if (r != null && (bestRank == null || r < bestRank)) {
+                best = i;
+                bestRank = r;
+            }
+        }
+        return best;
     }
 }

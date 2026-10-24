@@ -1,6 +1,8 @@
 import com.jay.calmhome.Ambient;
 import com.jay.calmhome.AppEntry;
 import com.jay.calmhome.AppOrder;
+import com.jay.calmhome.HomeLayout;
+import com.jay.calmhome.Motion;
 import com.jay.calmhome.LaunchLog;
 import com.jay.calmhome.Options;
 import com.jay.calmhome.Scenes;
@@ -36,6 +38,12 @@ public final class Tests {
         orderPins();
         orderToggle();
         ambientTests();
+        migrateTests();
+        heroTests();
+        timeTests();
+        springTests();
+        layoutTests();
+        idleTests();
         System.out.println(run + " checks, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -352,11 +360,11 @@ public final class Tests {
         AppOrder.Split empty = AppOrder.split(Collections.<AppEntry>emptyList(), pins, 5);
         check(empty.dock.isEmpty() && empty.grid.isEmpty(), "no apps, no tiles");
         List<AppEntry> defaults = Arrays.asList(app("com.apple.atve.amazon.appletv", "Apple TV"),
-                app("com.amazon.firetv.youtube", "YouTube"), app("com.amazon.firebat", "Prime Video"),
+                app("org.smarttube.stable", "SmartTube"), app("com.amazon.firebat", "Prime Video"),
                 app("com.netflix.ninja", "Netflix"));
         eq(pkgs(AppOrder.split(defaults, AppOrder.parsePins(AppOrder.DEFAULT_PINS), 5).dock),
-                Arrays.asList("com.netflix.ninja", "com.amazon.firebat", "com.amazon.firetv.youtube",
-                        "com.apple.atve.amazon.appletv"), "default dock: Netflix, Prime, YouTube, Apple TV");
+                Arrays.asList("com.netflix.ninja", "com.amazon.firebat", "org.smarttube.stable",
+                        "com.apple.atve.amazon.appletv"), "default dock: Netflix, Prime, SmartTube, Apple TV");
     }
 
     static void orderAll() {
@@ -434,5 +442,144 @@ public final class Tests {
         eq(Ambient.greeting(18 * 60), "Good evening", "18:00");
         eq(Ambient.greeting(23 * 60 + 59), "Good evening", "23:59");
         eq(Ambient.greeting(-1), "Good evening", "negative wraps");
+    }
+
+    // ---- v0.2 ---------------------------------------------------------------------------------
+
+    static Set<String> set(String... a) { return new HashSet<>(Arrays.asList(a)); }
+
+    static void migrateTests() {
+        String yt = "com.amazon.firetv.youtube", st = "org.smarttube.stable";
+        List<String> pins = Arrays.asList("com.netflix.ninja", yt, "com.apple.atve.amazon.appletv");
+        eq(AppOrder.migratePins(pins, set("com.netflix.ninja", st, "com.apple.atve.amazon.appletv")),
+                Arrays.asList("com.netflix.ninja", st, "com.apple.atve.amazon.appletv"), "YouTube pin passes to SmartTube in place");
+        eq(AppOrder.migratePins(pins, set("com.netflix.ninja", yt, st)), pins, "no migration while YouTube is installed");
+        eq(AppOrder.migratePins(pins, set("com.netflix.ninja")), pins, "no migration without SmartTube");
+        eq(AppOrder.migratePins(Arrays.asList(yt, st), set(st)), Arrays.asList(yt, st), "no duplicate when SmartTube is already pinned");
+        eq(AppOrder.migratePins(Collections.<String>emptyList(), set(st)), Collections.<String>emptyList(), "empty pins");
+        eq(AppOrder.migratePins(Arrays.asList("a.b", "a.b"), set()), Arrays.asList("a.b"), "migration dedupes");
+    }
+
+    static void heroTests() {
+        List<AppEntry> dock = Arrays.asList(app("a.a", "A"), app("b.b", "B"), app("c.c", "C"));
+        eq(AppOrder.hero(dock, ""), 0, "no history: first favourite");
+        eq(AppOrder.hero(dock, "c.c,a.a"), 2, "most recent favourite");
+        eq(AppOrder.hero(dock, "x.x,b.b"), 1, "non-favourites ignored");
+        eq(AppOrder.hero(Collections.<AppEntry>emptyList(), "a.a"), -1, "empty dock");
+    }
+
+    static void timeTests() {
+        long t = 1_800_000_000_000L;
+        String r = LaunchLog.recordTime(null, "a.b", t);
+        eq(LaunchLog.timeOf(r, "a.b"), t, "time stored");
+        r = LaunchLog.recordTime(r, "c.d", t + 5);
+        r = LaunchLog.recordTime(r, "a.b", t + 9);
+        eq(LaunchLog.timeOf(r, "a.b"), t + 9, "time updated");
+        eq(LaunchLog.timeOf(r, "c.d"), t + 5, "other time kept");
+        check(r.startsWith("a.b="), "newest first");
+        eq(r.split(",").length, 2, "one entry per app");
+        eq(LaunchLog.timeOf("a.b=junk,c.d=-4", "a.b"), -1L, "bad time");
+        eq(LaunchLog.timeOf("c.d=-4", "c.d"), -1L, "negative time");
+        eq(LaunchLog.timeOf(null, "a.b"), -1L, "null log");
+        eq(LaunchLog.recordTime("a.b=junk,;rm=1,c.d=7", "x.y", 3), "x.y=3,c.d=7", "junk dropped");
+        eq(LaunchLog.recordTime("c.d=7", "bad pkg", 3), "c.d=7", "bad package ignored");
+        String big = "";
+        for (int i = 0; i < 150; i++) big = LaunchLog.recordTime(big, "p.q" + i, t + i);
+        eq(big.split(",").length, LaunchLog.MAX, "times capped");
+        long m = 60_000L;
+        eq(LaunchLog.ago(t, t), "Just now", "now");
+        eq(LaunchLog.ago(t, t + 59_000L), "Just now", "under a minute");
+        eq(LaunchLog.ago(t, t + 12 * m), "12 min ago", "minutes");
+        eq(LaunchLog.ago(t, t + 3 * 60 * m), "3 h ago", "hours");
+        eq(LaunchLog.ago(t, t + 30 * 60 * m), "Yesterday", "yesterday");
+        eq(LaunchLog.ago(t, t + 4 * 24 * 60 * m), "4 days ago", "days");
+        eq(LaunchLog.ago(t, t + 90L * 24 * 60 * m), "A while ago", "long ago");
+        eq(LaunchLog.ago(-1, t), "", "unknown");
+        eq(LaunchLog.ago(t + 10 * m, t), "", "future (clock changed)");
+        eq(LaunchLog.ago(t + 30_000L, t), "Just now", "small clock skew tolerated");
+    }
+
+    static void springTests() {
+        float[] xv = {0f, 0f};
+        float max = 0f;
+        int frames = 0;
+        while (Motion.spring(xv, 100f, 16f) && frames < 1000) {
+            max = Math.max(max, xv[0]);
+            frames++;
+        }
+        eq(xv[0], 100f, "spring settles on target");
+        check(frames * 16 < 900, "settles in under 0.9 s (" + frames * 16 + " ms)");
+        check(max > 100.5f && max < 112f, "small overshoot (" + max + ")");
+        for (float dt : new float[]{1f, 7f, 33f, 64f, 100f, 5000f}) {
+            float[] v = {0f, 0f};
+            int n = 0;
+            boolean ok = true;
+            while (Motion.spring(v, -50f, dt) && n < 2000) {
+                ok &= !Float.isNaN(v[0]) && Math.abs(v[0]) < 200f;
+                n++;
+            }
+            check(ok && v[0] == -50f, "stable and settles at dt=" + dt);
+        }
+        float[] bad = {Float.NaN, 3f};
+        check(!Motion.spring(bad, 7f, 16f) && bad[0] == 7f, "NaN recovers to target");
+        float[] still = {5f, 0f};
+        check(!Motion.spring(still, 5f, 16f), "at rest stays at rest");
+        float[] zero = {0f, 0f};
+        Motion.spring(zero, 10f, 0f);
+        eq(zero[0], 0f, "dt 0 does not move");
+        eq(Motion.easeOut(-1f), 0f, "ease below");
+        eq(Motion.easeOut(2f), 1f, "ease above");
+        check(Motion.easeOut(0.5f) > 0.5f, "ease-out front-loads");
+        float prev = -1f;
+        boolean mono = true;
+        for (int i = 0; i <= 100; i++) {
+            float e = Motion.easeOut(i / 100f);
+            mono &= e >= prev;
+            prev = e;
+        }
+        check(mono, "ease monotonic");
+        eq(Motion.stagger(0, 3, 40, 400), 0f, "later items wait");
+        eq(Motion.stagger(10_000, 3, 40, 400), 1f, "all arrive");
+        check(Motion.stagger(200, 0, 40, 400) > Motion.stagger(200, 2, 40, 400), "earlier items lead");
+        eq(Motion.stagger(5, 0, 40, 0), 1f, "zero duration is instant");
+    }
+
+    static void layoutTests() {
+        for (int n = 0; n <= HomeLayout.MAX_DOCK + 2; n++) {
+            Box[] b = HomeLayout.row(n);
+            int k = Math.min(n, HomeLayout.MAX_DOCK);
+            eq(b.length, k + 1, "row length for " + n);
+            for (int i = 0; i < b.length; i++) {
+                check(b[i].l >= HomeLayout.LEFT - 0.01f && b[i].r <= HomeLayout.RIGHT + 0.01f, "fits width n=" + n + " i=" + i);
+                check(b[i].b <= HomeLayout.BOTTOM + 0.01f && b[i].t >= 600f, "fits height n=" + n + " i=" + i);
+                if (i > 0) check(b[i].l >= b[i - 1].r + 8f, "no overlap n=" + n + " i=" + i);
+            }
+            if (k > 0) {
+                check(b[0].r - b[0].l > 2.5f * (b[1 % b.length].r - b[1 % b.length].l) || b.length == 1, "hero is the big one n=" + n);
+                eq(HomeLayout.top(n), b[0].t, "top is the hero top n=" + n);
+            }
+            int cur = 0, steps = 0;
+            while (steps++ < 20) {
+                int nx = SpatialNav.find(b, cur, SpatialNav.RIGHT, b[cur].cx());
+                if (nx < 0) break;
+                eq(nx, cur + 1, "right walks the row in order n=" + n);
+                cur = nx;
+            }
+            eq(cur, b.length - 1, "right reaches All apps n=" + n);
+            while (cur > 0) {
+                int nx = SpatialNav.find(b, cur, SpatialNav.LEFT, b[cur].cx());
+                eq(nx, cur - 1, "left walks back n=" + n);
+                if (nx < 0) break;
+                cur = nx;
+            }
+        }
+    }
+
+    static void idleTests() {
+        check(!Ambient.idle(1000, 1000, Ambient.IDLE_MS), "fresh input is not idle");
+        check(Ambient.idle(Ambient.IDLE_MS, 0, Ambient.IDLE_MS), "idle at the limit");
+        check(!Ambient.idle(Ambient.IDLE_MS - 1, 0, Ambient.IDLE_MS), "not idle just before");
+        check(!Ambient.idle(999_999_999L, 0, 0), "zero timeout never idles");
+        check(!Ambient.idle(999_999_999L, 0, -5), "negative timeout never idles");
     }
 }

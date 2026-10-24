@@ -30,6 +30,13 @@ public final class Ambient {
         return "Good evening";
     }
 
+    public static final long IDLE_MS = 3L * 60L * 1000L;
+
+    /** True once Home has been left alone for timeoutMs; never for a non-positive timeout. */
+    public static boolean idle(long now, long lastInput, long timeoutMs) {
+        return timeoutMs > 0 && now - lastInput >= timeoutMs;
+    }
+
     private static int ch(int a, int b, float t) {
         a &= 0xFF;
         b &= 0xFF;

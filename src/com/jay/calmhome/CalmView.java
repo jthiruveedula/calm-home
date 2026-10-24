@@ -2,8 +2,10 @@ package com.jay.calmhome;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.View;
@@ -17,8 +19,9 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * The whole UI on one Canvas, in the Liquid Glass design's 1920x1080 units: Home, All apps and
- * Customize. Focus is geometric (SpatialNav); everything focusable is an Item with a rectangle.
+ * The whole UI on one Canvas, in the Liquid Glass design's 1920x1080 units: Home (with a hero
+ * card for the app to continue), All apps, Customize, a Quick settings panel and an ambient clock.
+ * Focus is geometric (SpatialNav) and moves on springs (Motion); everything focusable is an Item.
  */
 final class CalmView extends View {
     interface Host {
@@ -27,15 +30,18 @@ final class CalmView extends View {
         void togglePin(AppEntry e);
 
         void openSettings();
+
+        void openSettings(String action);
     }
 
-    static final int HOME = 0, APPS = 1, CUSTOM = 2;
-    static final int MAX_DOCK = 7;
+    static final int HOME = 0, APPS = 1, CUSTOM = 2, QUICK = 3;
+    static final int MAX_DOCK = HomeLayout.MAX_DOCK;
 
     private static final int CIRCLE = 0, FAV = 1, MORE = 2, PRIMARY = 3, CHIP = 4, APPT = 5,
-            TOGGLE = 6, SWATCH = 7, DOT = 8;
+            TOGGLE = 6, SWATCH = 7, DOT = 8, HERO = 9, ROW = 10;
     private static final float W = Background.W, H = Background.H;
     private static final int INK = 0xFF05070D;
+    private static final float PANEL_L = 1216f, PANEL_R = 1824f;
 
     private static final class Item {
         final int kind;
@@ -47,6 +53,7 @@ final class CalmView extends View {
         TileArt art;
         boolean on, pinned, dark;
         int color, icon;
+        Shader shade;
         Runnable select, menu;
 
         Item(int kind, String id, float l, float t, float w, float h) {
@@ -62,6 +69,7 @@ final class CalmView extends View {
     private final Gfx g = new Gfx();
     private final Background bg = new Background();
     private final List<Item> items = new ArrayList<>();
+    private final List<Item> under = new ArrayList<>();
     private SpatialNav.Box[] boxes = new SpatialNav.Box[0];
     private Settings st;
     private Host host;
@@ -79,12 +87,18 @@ final class CalmView extends View {
     private float s = 1f, ox, oy;
     private float camY, camGoal, contentH = H;
     private final RectF fNow = new RectF(), fGoal = new RectF();
+    private final float[][] edge = {{0f, 0f}, {0f, 0f}, {0f, 0f}, {0f, 0f}};
+    private float parX, parY, parGoalX, parGoalY;
     private boolean snap = true;
     private final long t0 = SystemClock.uptimeMillis();
     private int sceneFrom, sceneTo;
     private long sceneSince = -1000000L, lastAuto = SystemClock.uptimeMillis();
     private long lastFrame, screenSince = SystemClock.uptimeMillis();
     private boolean longFired;
+
+    private long lastInput = SystemClock.uptimeMillis();
+    private boolean ambientOn, swallowUp;
+    private float amb;
 
     private long clockMinute = -1;
     private int minuteOfDay;
@@ -112,13 +126,21 @@ final class CalmView extends View {
         art = newArt;
         loaded = true;
         recompute();
-        // The first real data replaces a placeholder-only screen: start on the first favourite,
+        // The first real data replaces a placeholder-only screen: start on the hero,
         // not wherever focus happened to sit while the list was loading.
         rebuild(first ? "#default" : null);
     }
 
     void showHome() {
+        wake();
         if (screen != HOME) go(HOME);
+    }
+
+    /** Back from another app or a remote press: leave the ambient screen and restart the idle timer. */
+    void wake() {
+        lastInput = SystemClock.uptimeMillis();
+        ambientOn = false;
+        invalidate();
     }
 
     boolean onHome() {
@@ -128,7 +150,10 @@ final class CalmView extends View {
     private void recompute() {
         pins = AppOrder.parsePins(st.pins());
         AppOrder.Split sp = AppOrder.split(all, pins, MAX_DOCK);
-        dock = sp.dock;
+        List<AppEntry> d = new ArrayList<>(sp.dock);
+        int hero = AppOrder.hero(d, st.log());
+        if (hero > 0) d.add(0, d.remove(hero));
+        dock = d;
         sorted = AppOrder.allApps(all, pins, st.sort(), st.log());
     }
 
@@ -146,7 +171,7 @@ final class CalmView extends View {
         screen = to;
         camY = camGoal = 0f;
         screenSince = SystemClock.uptimeMillis();
-        snap = true;
+        snap = to != QUICK;
         recompute();
         rebuild("#default");
     }
@@ -154,11 +179,18 @@ final class CalmView extends View {
     // ---- building screens -------------------------------------------------------------------
 
     private void rebuild(String keepId) {
-        String keep = keepId != null ? keepId : (focus < items.size() ? items.get(focus).id : null);
+        String keep = keepId != null ? keepId : (focus >= 0 && focus < items.size() ? items.get(focus).id : null);
         items.clear();
+        under.clear();
         if (screen == HOME) buildHome();
         else if (screen == APPS) buildApps();
-        else buildCustom();
+        else if (screen == CUSTOM) buildCustom();
+        else {
+            buildHome();
+            under.addAll(items);
+            items.clear();
+            buildQuick();
+        }
         boxes = new SpatialNav.Box[items.size()];
         for (int i = 0; i < boxes.length; i++) {
             Item it = items.get(i);
@@ -176,7 +208,7 @@ final class CalmView extends View {
     }
 
     private int defaultFocus() {
-        int want = screen == HOME ? FAV : screen == APPS ? APPT : TOGGLE;
+        int want = screen == HOME ? HERO : screen == APPS ? APPT : screen == QUICK ? ROW : TOGGLE;
         for (int i = 0; i < items.size(); i++) {
             if (items.get(i).kind == want) return i;
         }
@@ -192,6 +224,7 @@ final class CalmView extends View {
     }
 
     private void buildHome() {
+        contentH = H;
         float right = 1824f;
         if (st.flag(Settings.PROFILE)) right -= profileWidth() + 16f;
         Item cust = add(new Item(CIRCLE, "customize", right - 72f, 64f, 72f, 72f));
@@ -203,18 +236,19 @@ final class CalmView extends View {
                 go(CUSTOM);
             }
         };
-        Item set = add(new Item(CIRCLE, "settings", right - 160f, 64f, 72f, 72f));
+        Item set = add(new Item(CIRCLE, "quick", right - 160f, 64f, 72f, 72f));
         set.icon = Gfx.ICON_GEAR;
-        set.label = "Settings";
+        set.label = "Quick settings";
         set.select = new Runnable() {
             @Override
             public void run() {
-                host.openSettings();
+                go(QUICK);
             }
         };
         if (st.flag(Settings.PHOTO)) {
             float tw = g.measure(sceneLabel(), 20f, g.regular);
-            Item prev = add(new Item(CIRCLE, "scene-prev", 96f + 22f + tw + 16f, 721f, 44f, 44f));
+            float py = photoTop();
+            Item prev = add(new Item(CIRCLE, "scene-prev", 96f + 22f + tw + 16f, py + 10f, 44f, 44f));
             prev.icon = Gfx.ICON_PREV;
             prev.label = "Previous photo";
             prev.select = new Runnable() {
@@ -223,7 +257,7 @@ final class CalmView extends View {
                     stepScene(-1);
                 }
             };
-            Item next = add(new Item(CIRCLE, "scene-next", prev.l + 60f, 721f, 44f, 44f));
+            Item next = add(new Item(CIRCLE, "scene-next", prev.l + 60f, py + 10f, 44f, 44f));
             next.icon = Gfx.ICON_NEXT;
             next.label = "Next photo";
             next.select = new Runnable() {
@@ -233,12 +267,16 @@ final class CalmView extends View {
                 }
             };
         }
+        SpatialNav.Box[] row = HomeLayout.row(dock.size());
         for (int i = 0; i < dock.size(); i++) {
             final AppEntry e = dock.get(i);
-            Item it = add(new Item(FAV, "app:" + e.pkg, 96f + i * 214f, 858f, 190f, 150f));
+            SpatialNav.Box b = row[i];
+            Item it = add(new Item(i == 0 ? HERO : FAV, "app:" + e.pkg, b.l, b.t, b.r - b.l, b.b - b.t));
             appItem(it, e);
+            if (i == 0) heroItem(it);
         }
-        Item more = add(new Item(MORE, "more", 96f + dock.size() * 214f, 858f, 190f, 150f));
+        SpatialNav.Box mb = row[dock.size()];
+        Item more = add(new Item(MORE, "more", mb.l, mb.t, mb.r - mb.l, mb.b - mb.t));
         more.label = "All apps";
         more.icon = Gfx.ICON_GRID;
         more.select = new Runnable() {
@@ -247,6 +285,22 @@ final class CalmView extends View {
                 go(APPS);
             }
         };
+    }
+
+    private float photoTop() {
+        return st.flag(Settings.CLOCK) ? 248f : 160f;
+    }
+
+    private void heroItem(Item it) {
+        int tint = it.art != null ? it.art.tint : st.accent();
+        long when = LaunchLog.timeOf(st.times(), it.app.pkg);
+        String ago = LaunchLog.ago(when, System.currentTimeMillis());
+        it.sub = ago.isEmpty() ? "Ready when you are" : "Last opened " + ago.substring(0, 1).toLowerCase(Locale.US)
+                + ago.substring(1);
+        it.color = tint;
+        it.shade = new LinearGradient(it.l, it.t, it.l + it.w, it.t + it.h,
+                new int[]{(tint & 0xFFFFFF) | 0xB0000000, (tint & 0xFFFFFF) | 0x40000000, 0x26000000},
+                new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP);
     }
 
     private void appItem(Item it, final AppEntry e) {
@@ -306,6 +360,40 @@ final class CalmView extends View {
         contentH = 212f + rows * 224f + 40f;
     }
 
+    private void buildQuick() {
+        contentH = H;
+        Object[][] rows = {
+                {"Wi-Fi & network", "Connect or change networks", Gfx.ICON_WIFI, "android.settings.WIFI_SETTINGS"},
+                {"Display & sounds", "Resolution, HDR and audio", Gfx.ICON_DISPLAY, "android.settings.DISPLAY_SETTINGS"},
+                {"Applications", "Storage, updates, force stop", Gfx.ICON_GRID, "android.settings.APPLICATION_SETTINGS"},
+                {"Ambient screen", "A calm clock over your scenes", Gfx.ICON_MOON, "#ambient"},
+                {"Customize Calm Home", "Clock, scenes, glass, accent", Gfx.ICON_SLIDERS, "#custom"},
+                {"All settings", "Everything else on this Fire TV", Gfx.ICON_GEAR, null},
+        };
+        for (int i = 0; i < rows.length; i++) {
+            final String action = (String) rows[i][3];
+            Item r = add(new Item(ROW, "q:" + i, PANEL_L + 32f, 236f + i * 116f, PANEL_R - PANEL_L - 64f, 100f));
+            r.label = (String) rows[i][0];
+            r.sub = (String) rows[i][1];
+            r.icon = (Integer) rows[i][2];
+            r.select = new Runnable() {
+                @Override
+                public void run() {
+                    if ("#ambient".equals(action)) {
+                        go(HOME);
+                        ambientOn = true;
+                    } else if ("#custom".equals(action)) {
+                        go(CUSTOM);
+                    } else if (action == null) {
+                        host.openSettings();
+                    } else {
+                        host.openSettings(action);
+                    }
+                }
+            };
+        }
+    }
+
     private void buildCustom() {
         contentH = H;
         float dw = 80f + g.measure("Done", 24f, g.medium);
@@ -325,6 +413,7 @@ final class CalmView extends View {
                 {Settings.PROFILE, "Profile", "Your name on Home"},
                 {Settings.PHOTO, "Photo controls", "Name and arrows"},
                 {Settings.QUIET, "Quiet hours", "Dim 11 pm to 6:30 am"},
+                {Settings.AMBIENT, "Ambient screen", "Clock after 3 idle min"},
         };
         for (int i = 0; i < defs.length; i++) {
             final String key = defs[i][0];
@@ -457,18 +546,22 @@ final class CalmView extends View {
             case MORE:
             case CIRCLE:
                 return 1.1f;
+            case HERO:
+                return 1.035f;
             case APPT:
                 return 1.08f;
             case DOT:
                 return 1.15f;
             case SWATCH:
                 return 1.05f;
+            case ROW:
+                return 1.02f;
             default:
                 return 1.04f;
         }
     }
 
-    /** Recomputes where focus and the camera are heading. */
+    /** Recomputes where focus, the camera and the background parallax are heading. */
     private void retarget() {
         if (focus >= 0 && focus < items.size()) {
             Item it = items.get(focus);
@@ -479,14 +572,27 @@ final class CalmView extends View {
             } else {
                 camGoal = 0f;
             }
+            parGoalX = -(fGoal.centerX() - W / 2f) * 0.018f;
+            parGoalY = -(fGoal.centerY() - H / 2f) * 0.012f;
             announceForAccessibility(it.label);
         }
         if (snap) {
             fNow.set(fGoal);
+            setEdges();
             camY = camGoal;
+            parX = parGoalX;
+            parY = parGoalY;
             snap = false;
         }
         postInvalidateOnAnimation();
+    }
+
+    private void setEdges() {
+        edge[0][0] = fNow.left;
+        edge[1][0] = fNow.top;
+        edge[2][0] = fNow.right;
+        edge[3][0] = fNow.bottom;
+        for (float[] e : edge) e[1] = 0f;
     }
 
     private boolean step(float dt) {
@@ -495,21 +601,21 @@ final class CalmView extends View {
         camY += (camGoal - camY) * k;
         if (Math.abs(camGoal - camY) < 0.4f) camY = camGoal;
         else moving = true;
-        moving |= approach(k);
+        moving |= Motion.spring(edge[0], fGoal.left, dt);
+        moving |= Motion.spring(edge[1], fGoal.top, dt);
+        moving |= Motion.spring(edge[2], fGoal.right, dt);
+        moving |= Motion.spring(edge[3], fGoal.bottom, dt);
+        fNow.set(edge[0][0], edge[1][0], edge[2][0], edge[3][0]);
+        float kp = 1f - (float) Math.exp(-dt / 600f);
+        parX += (parGoalX - parX) * kp;
+        parY += (parGoalY - parY) * kp;
+        if (Math.abs(parGoalX - parX) > 0.05f || Math.abs(parGoalY - parY) > 0.05f) moving = true;
+        float ka = 1f - (float) Math.exp(-dt / 380f);
+        float target = ambientOn ? 1f : 0f;
+        amb += (target - amb) * ka;
+        if (Math.abs(target - amb) < 0.004f) amb = target;
+        else moving = true;
         return moving;
-    }
-
-    private boolean approach(float k) {
-        fNow.left += (fGoal.left - fNow.left) * k;
-        fNow.top += (fGoal.top - fNow.top) * k;
-        fNow.right += (fGoal.right - fNow.right) * k;
-        fNow.bottom += (fGoal.bottom - fNow.bottom) * k;
-        if (Math.abs(fNow.left - fGoal.left) < 0.3f && Math.abs(fNow.top - fGoal.top) < 0.3f
-                && Math.abs(fNow.right - fGoal.right) < 0.3f && Math.abs(fNow.bottom - fGoal.bottom) < 0.3f) {
-            fNow.set(fGoal);
-            return false;
-        }
-        return true;
     }
 
     @Override
@@ -532,36 +638,27 @@ final class CalmView extends View {
         lastFrame = now;
         if (refreshClock() && screen == HOME) rebuild(null);
         autoScene(now);
+        if (!ambientOn && screen == HOME && st.flag(Settings.AMBIENT) && Ambient.idle(now, lastInput, Ambient.IDLE_MS)) {
+            ambientOn = true;
+        }
         boolean moving = step(dt);
         c.drawColor(INK);
         c.save();
         c.translate(ox, oy);
         c.scale(s, s);
-        bg.draw(c, (now - t0) / 1000.0, st.motion(), sceneFrom, sceneTo, now - sceneSince);
-        g.setTint(Options.GLASS_TINT[st.glass()]);
         c.save();
-        c.translate(0f, camY);
-        if (screen == HOME) drawHomeStatic(c);
-        else if (screen == APPS) drawAppsStatic(c);
-        else drawCustomStatic(c);
-        for (int i = 0; i < items.size(); i++) {
-            Item it = items.get(i);
-            if (i == focus) continue; // drawn once, on top, by drawFocus
-            if (it.t + it.h + camY < -40f || it.t + camY > H + 40f) continue;
-            c.save();
-            c.translate(it.l, it.t);
-            drawItem(c, it, 0f);
-            c.restore();
-        }
-        drawFocus(c);
+        c.translate(parX * (1f - amb), parY * (1f - amb));
+        c.scale(1.03f, 1.03f, W / 2f, H / 2f);
+        bg.draw(c, (now - t0) / 1000.0, st.motion(), sceneFrom, sceneTo, now - sceneSince);
         c.restore();
-        float fade = Math.min(1f, (now - screenSince) / 240f);
-        if (fade < 1f) {
-            g.fill.setShader(null);
-            g.fill.setColor(((int) ((1f - fade) * 0x99) << 24) | 0x05070D);
-            c.drawRect(0f, 0f, W, H, g.fill);
-            moving = true;
+        g.setTint(Options.GLASS_TINT[st.glass()]);
+        if (amb < 0.995f) {
+            boolean layer = amb > 0.005f;
+            if (layer) c.saveLayerAlpha(0f, 0f, W, H, Math.round((1f - amb) * 255f));
+            moving |= drawUi(c, now);
+            if (layer) c.restore();
         }
+        if (amb > 0.005f) drawAmbient(c, now);
         c.restore();
         if (st.flag(Settings.QUIET)) {
             float dim = Ambient.quietDim(minuteOfDay);
@@ -570,6 +667,81 @@ final class CalmView extends View {
         boolean fading = now - sceneSince < Scenes.FADE_MS;
         long delay = (st.motion() != 2 || fading || moving) ? 33L : 500L;
         postInvalidateDelayed(delay);
+    }
+
+    /** @return true while an entrance is still animating */
+    private boolean drawUi(Canvas c, long now) {
+        boolean moving = false;
+        long since = now - screenSince;
+        c.save();
+        c.translate(0f, camY);
+        if (screen == QUICK) {
+            drawHomeStatic(c);
+            for (Item it : under) {
+                c.save();
+                c.translate(it.l, it.t);
+                drawItem(c, it, 0f);
+                c.restore();
+            }
+            float in = Motion.easeOut(since / 320f);
+            moving = in < 1f;
+            g.fill.setShader(null);
+            g.fill.setColor(((int) (0xA6 * in) << 24) | 0x05070D);
+            c.drawRect(0f, 0f, W, H, g.fill);
+            c.translate((1f - in) * 140f, 0f);
+            g.fill.setColor(0xF20A0D18);
+            c.drawRoundRect(PANEL_L, 64f, PANEL_R, 1016f, 40f, 40f, g.fill);
+            g.glass(c, PANEL_L, 64f, PANEL_R, 1016f, 40f, 0.25f);
+            g.text.setLetterSpacing(-0.02f);
+            g.label(c, "Quick settings", PANEL_L + 40f, 150f, 44f, g.medium, 0xFFFFFFFF, Paint.Align.LEFT);
+            g.text.setLetterSpacing(0f);
+            g.label(c, clockText + "  ·  " + dateText, PANEL_L + 40f, 192f, 22f, g.regular, 0xB3FFFFFF, Paint.Align.LEFT);
+        } else if (screen == HOME) {
+            drawHomeStatic(c);
+        } else if (screen == APPS) {
+            drawAppsStatic(c);
+        } else {
+            drawCustomStatic(c);
+        }
+        for (int i = 0; i < items.size(); i++) {
+            Item it = items.get(i);
+            if (i == focus) continue; // drawn once, on top, by drawFocus
+            if (it.t + it.h + camY < -40f || it.t + camY > H + 40f) continue;
+            float p = Motion.stagger(since, i, 26L, 460L);
+            if (p < 1f) moving = true;
+            c.save();
+            c.translate(it.l, it.t + (1f - p) * 34f);
+            drawItem(c, it, 0f);
+            c.restore();
+        }
+        drawFocus(c);
+        c.restore();
+        float fade = Math.min(1f, since / 260f);
+        if (fade < 1f && screen != QUICK) {
+            g.fill.setShader(null);
+            g.fill.setColor(((int) ((1f - fade) * 0x99) << 24) | 0x05070D);
+            c.drawRect(0f, 0f, W, H, g.fill);
+            moving = true;
+        }
+        return moving;
+    }
+
+    /** A big, slowly wandering clock over the scenes; it moves a little so nothing burns in. */
+    private void drawAmbient(Canvas c, long now) {
+        double t = (now - t0) / 1000.0;
+        float dx = (float) Math.sin(t / 47.0) * 60f, dy = (float) Math.cos(t / 61.0) * 34f;
+        int a = Math.round(amb * 255f);
+        g.text.setTypeface(g.light);
+        g.text.setTextSize(240f);
+        g.text.setColor((a << 24) | 0xFFFFFF);
+        g.text.setTextAlign(Paint.Align.CENTER);
+        g.text.setLetterSpacing(-0.04f);
+        c.drawText(clockText, W / 2f + dx, 560f + dy, g.text);
+        g.text.setLetterSpacing(0f);
+        g.label(c, dateText, W / 2f + dx, 640f + dy, 34f, g.regular, (Math.round(amb * 0xCC) << 24) | 0xFFFFFF,
+                Paint.Align.CENTER);
+        g.label(c, "Press any button", W / 2f, 1010f, 20f, g.regular, (Math.round(amb * 0x66) << 24) | 0xFFFFFF,
+                Paint.Align.CENTER);
     }
 
     private void drawHomeStatic(Canvas c) {
@@ -601,13 +773,20 @@ final class CalmView extends View {
         }
         if (st.flag(Settings.PHOTO)) {
             String label = sceneLabel();
+            float py = photoTop();
             float pw = 22f + g.measure(label, 20f, g.regular) + 16f + 44f + 16f + 44f + 12f;
-            g.glass(c, 96f, 711f, 96f + pw, 775f, 32f, 0f);
-            g.label(c, label, 96f + 22f, 749f, 20f, g.regular, 0xE6FFFFFF, Paint.Align.LEFT);
+            g.glass(c, 96f, py, 96f + pw, py + 64f, 32f, 0f);
+            g.label(c, label, 96f + 22f, py + 38f, 20f, g.regular, 0xE6FFFFFF, Paint.Align.LEFT);
         }
-        g.label(c, "Favorites", 96f, 833f, 26f, g.medium, 0xE6FFFFFF, Paint.Align.LEFT);
-        if (loaded && dock.isEmpty()) {
-            g.label(c, "Press Menu on any app in All apps to pin it here", 96f + 214f + 20f, 940f, 22f,
+        float top = HomeLayout.top(dock.size());
+        if (!dock.isEmpty()) {
+            g.label(c, "Continue", 96f, top - 22f, 26f, g.medium, 0xE6FFFFFF, Paint.Align.LEFT);
+            if (dock.size() > 1) {
+                SpatialNav.Box b1 = HomeLayout.row(dock.size())[1];
+                g.label(c, "Favorites", b1.l, b1.t - 22f, 26f, g.medium, 0xE6FFFFFF, Paint.Align.LEFT);
+            }
+        } else if (loaded) {
+            g.label(c, "Press Menu on any app in All apps to pin it here", 96f + 192f + 20f, 940f, 22f,
                     g.regular, 0xA6FFFFFF, Paint.Align.LEFT);
         }
     }
@@ -646,12 +825,40 @@ final class CalmView extends View {
     private void drawFocus(Canvas c) {
         if (focus < 0 || focus >= items.size()) return;
         Item it = items.get(focus);
+        float r = radius(it);
+        int glow = it.kind == HERO ? it.color : st.accent();
+        g.fill.setShader(null);
+        for (int k = 3; k >= 1; k--) {
+            float grow = k * 9f;
+            g.fill.setColor(((k == 1 ? 0x30 : k == 2 ? 0x1C : 0x0E) << 24) | (glow & 0xFFFFFF));
+            c.drawRoundRect(fNow.left - grow, fNow.top - grow + 6f, fNow.right + grow, fNow.bottom + grow + 6f,
+                    r + grow, r + grow, g.fill);
+        }
         c.save();
         c.translate(fNow.centerX(), fNow.centerY());
         c.scale(fNow.width() / it.w, fNow.height() / it.h);
         c.translate(-it.w / 2f, -it.h / 2f);
         drawItem(c, it, 1f);
         c.restore();
+    }
+
+    private static float radius(Item it) {
+        switch (it.kind) {
+            case CIRCLE:
+            case PRIMARY:
+            case CHIP:
+            case DOT:
+                return it.h / 2f;
+            case TOGGLE:
+            case ROW:
+                return 24f;
+            case SWATCH:
+                return 20f;
+            case HERO:
+                return 40f;
+            default:
+                return 32f;
+        }
     }
 
     /** Draws one item with its top-left at the origin. lift 0..1 is the focused look. */
@@ -662,16 +869,19 @@ final class CalmView extends View {
                 g.glass(c, 0f, 0f, w, h, h / 2f, lift);
                 g.icon(c, it.icon, w / 2f, h / 2f, h > 60f ? 30f : 20f, 0xFFFFFFFF, h > 60f ? 2f : 2.4f);
                 break;
+            case HERO:
+                drawHero(c, it, lift);
+                break;
             case FAV:
                 g.glass(c, 0f, 0f, w, h, 32f, lift);
-                drawIcon(c, it, w / 2f - 36f, 22f, 72f, 20f);
-                g.label(c, AppRepo.fit(it.label, g.text, w - 24f), w / 2f, 122f, 20f, g.medium, 0xFFFFFFFF,
+                drawIcon(c, it, w / 2f - 40f, 30f, 80f, 22f);
+                g.label(c, AppRepo.fit(it.label, g.text, w - 24f), w / 2f, 156f, 20f, g.medium, 0xFFFFFFFF,
                         Paint.Align.CENTER);
                 break;
             case MORE:
                 g.glass(c, 0f, 0f, w, h, 32f, lift);
-                g.icon(c, Gfx.ICON_GRID, w / 2f, 58f, 44f, 0xFFFFFFFF, 1.6f);
-                g.label(c, it.label, w / 2f, 122f, 20f, g.medium, 0xFFFFFFFF, Paint.Align.CENTER);
+                g.icon(c, Gfx.ICON_GRID, w / 2f, 70f, 48f, 0xFFFFFFFF, 1.6f);
+                g.label(c, it.label, w / 2f, 156f, 20f, g.medium, 0xFFFFFFFF, Paint.Align.CENTER);
                 break;
             case APPT:
                 g.glass(c, 0f, 0f, w, h, 32f, lift);
@@ -679,6 +889,9 @@ final class CalmView extends View {
                 g.label(c, AppRepo.fit(it.label, g.text, w - 28f), w / 2f, 156f, 20f, g.medium, 0xFFFFFFFF,
                         Paint.Align.CENTER);
                 if (it.pinned) badge(c, w);
+                break;
+            case ROW:
+                drawRow(c, it, lift);
                 break;
             case PRIMARY:
                 g.fill.setShader(null);
@@ -706,11 +919,57 @@ final class CalmView extends View {
                 if (it.on) g.ring(c, 0f, 0f, w, h, h / 2f);
                 break;
         }
-        if (lift > 0f) {
-            float r = it.kind == CIRCLE || it.kind == PRIMARY || it.kind == CHIP || it.kind == DOT ? h / 2f
-                    : it.kind == TOGGLE ? 24f : it.kind == SWATCH ? 20f : 32f;
-            g.ring(c, 0f, 0f, w, h, r);
+        if (lift > 0f) g.ring(c, 0f, 0f, w, h, radius(it));
+    }
+
+    /** The continue card: the app's own colour washed across glass, its icon large, and Open. */
+    private void drawHero(Canvas c, Item it, float lift) {
+        float w = it.w, h = it.h;
+        g.glass(c, 0f, 0f, w, h, 40f, lift * 0.6f);
+        if (it.shade != null) {
+            g.matrix().setTranslate(-it.l, -it.t);
+            it.shade.setLocalMatrix(g.matrix());
+            g.fill.setShader(it.shade);
+            c.drawRoundRect(0f, 0f, w, h, 40f, 40f, g.fill);
+            g.fill.setShader(null);
         }
+        if (it.art != null) {
+            // A huge, faint copy of the icon bleeding off the right edge, for depth.
+            c.save();
+            c.clipRect(0f, 0f, w - 2f, h - 2f);
+            int alpha = g.img.getAlpha();
+            g.img.setAlpha(46);
+            drawArt(c, it.art, w - 250f, h / 2f - 150f, 300f, 64f);
+            g.img.setAlpha(alpha);
+            c.restore();
+        }
+        drawIcon(c, it, 36f, 36f, 104f, 26f);
+        g.text.setLetterSpacing(-0.015f);
+        g.label(c, AppRepo.fit(it.label, g.text, w - 200f), 164f, 86f, 40f, g.medium, 0xFFFFFFFF, Paint.Align.LEFT);
+        g.text.setLetterSpacing(0f);
+        g.label(c, it.sub, 164f, 124f, 22f, g.regular, 0xCCFFFFFF, Paint.Align.LEFT);
+        float bw = 52f + 26f + g.measure("Open", 22f, g.medium) + 26f, by = h - 36f - 60f;
+        g.fill.setShader(null);
+        g.fill.setColor(0xFFFFFFFF);
+        c.drawRoundRect(36f, by, 36f + bw, by + 60f, 30f, 30f, g.fill);
+        g.icon(c, Gfx.ICON_PLAY, 36f + 36f, by + 30f, 26f, 0xFF05070D, 2.6f);
+        g.label(c, "Open", 36f + 58f, by + 38f, 22f, g.medium, 0xFF05070D, Paint.Align.LEFT);
+        if (lift > 0f) {
+            g.label(c, "Menu to unpin", w - 36f, h - 56f, 18f, g.regular, 0x99FFFFFF, Paint.Align.RIGHT);
+        }
+    }
+
+    private void drawRow(Canvas c, Item it, float lift) {
+        float w = it.w, h = it.h;
+        g.fill.setShader(null);
+        g.fill.setColor(lift > 0f ? 0x2EFFFFFF : 0x12FFFFFF);
+        c.drawRoundRect(0f, 0f, w, h, 24f, 24f, g.fill);
+        g.fill.setColor(lift > 0f ? st.accent() : 0x1FFFFFFF);
+        c.drawCircle(52f, h / 2f, 30f, g.fill);
+        g.icon(c, it.icon, 52f, h / 2f, 28f, lift > 0f ? 0xFF05070D : 0xFFFFFFFF, 2f);
+        g.label(c, it.label, 104f, h / 2f - 4f, 26f, g.medium, 0xFFFFFFFF, Paint.Align.LEFT);
+        g.label(c, it.sub, 104f, h / 2f + 28f, 19f, g.regular, 0xB3FFFFFF, Paint.Align.LEFT);
+        g.icon(c, Gfx.ICON_NEXT, w - 36f, h / 2f, 22f, lift > 0f ? 0xFFFFFFFF : 0x80FFFFFF, 2.2f);
     }
 
     private void drawIcon(Canvas c, Item it, float x, float y, float size, float radius) {
@@ -720,10 +979,14 @@ final class CalmView extends View {
             c.drawRoundRect(x, y, x + size, y + size, radius, radius, g.fill);
             return;
         }
-        g.matrix().setScale(size / it.art.bitmap.getWidth(), size / it.art.bitmap.getHeight());
+        drawArt(c, it.art, x, y, size, radius);
+    }
+
+    private void drawArt(Canvas c, TileArt a, float x, float y, float size, float radius) {
+        g.matrix().setScale(size / a.bitmap.getWidth(), size / a.bitmap.getHeight());
         g.matrix().postTranslate(x, y);
-        it.art.shader.setLocalMatrix(g.matrix());
-        g.img.setShader(it.art.shader);
+        a.shader.setLocalMatrix(g.matrix());
+        g.img.setShader(a.shader);
         c.drawRoundRect(x, y, x + size, y + size, radius, radius, g.img);
         g.img.setShader(null);
     }
@@ -798,6 +1061,16 @@ final class CalmView extends View {
 
     @Override
     public boolean onKeyDown(int code, KeyEvent ev) {
+        lastInput = SystemClock.uptimeMillis();
+        if (ambientOn || swallowUp) {
+            // The first press only wakes the screen; its release must not also act.
+            if (ambientOn) {
+                ambientOn = false;
+                swallowUp = true;
+                invalidate();
+            }
+            return code != KeyEvent.KEYCODE_HOME || super.onKeyDown(code, ev);
+        }
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_UP:
                 return move(SpatialNav.UP);
@@ -830,6 +1103,7 @@ final class CalmView extends View {
 
     @Override
     public boolean onKeyLongPress(int code, KeyEvent ev) {
+        if (swallowUp) return true;
         if (isSelect(code)) {
             longFired = true;
             pinFocused();
@@ -840,6 +1114,12 @@ final class CalmView extends View {
 
     @Override
     public boolean onKeyUp(int code, KeyEvent ev) {
+        lastInput = SystemClock.uptimeMillis();
+        if (swallowUp) {
+            swallowUp = false;
+            longFired = false;
+            return true;
+        }
         if (isSelect(code)) {
             if (!longFired && ev.isTracking() && !ev.isCanceled() && focus >= 0 && focus < items.size()) {
                 Runnable select = items.get(focus).select;

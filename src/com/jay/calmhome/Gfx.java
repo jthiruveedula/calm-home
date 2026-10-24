@@ -16,7 +16,8 @@ import android.graphics.Typeface;
  * on a 2018 Fire Stick.
  */
 final class Gfx {
-    static final int ICON_GEAR = 0, ICON_SLIDERS = 1, ICON_PREV = 2, ICON_NEXT = 3, ICON_GRID = 4;
+    static final int ICON_GEAR = 0, ICON_SLIDERS = 1, ICON_PREV = 2, ICON_NEXT = 3, ICON_GRID = 4,
+            ICON_WIFI = 5, ICON_DISPLAY = 6, ICON_MOON = 7, ICON_PLAY = 8;
 
     final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -29,12 +30,17 @@ final class Gfx {
     private final Matrix m = new Matrix();
     private final RectF r = new RectF();
     private final Path path = new Path();
+    private final Path moon = new Path();
     private LinearGradient glassFill;
     private float glassTint = -1f;
     private final LinearGradient edge = new LinearGradient(0, 0, 1, 1,
             new int[]{0xA6FFFFFF, 0x14FFFFFF, 0x2EFFFFFF}, new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP);
 
     Gfx() {
+        Path cut = new Path();
+        moon.addCircle(12f, 12f, 8f, Path.Direction.CW);
+        cut.addCircle(16.5f, 8.5f, 7f, Path.Direction.CW);
+        moon.op(cut, Path.Op.DIFFERENCE);
         line.setStyle(Paint.Style.STROKE);
         line.setStrokeCap(Paint.Cap.ROUND);
         line.setStrokeJoin(Paint.Join.ROUND);
@@ -139,13 +145,41 @@ final class Gfx {
                 path.addCircle(10, 17, 2, Path.Direction.CW);
                 break;
             case ICON_GEAR:
-                path.addCircle(12, 12, 6.2f, Path.Direction.CW);
-                path.addCircle(12, 12, 2.4f, Path.Direction.CW);
+                // Eight square teeth on a ring: an outline that reads as a gear, not a sun.
                 for (int k = 0; k < 8; k++) {
-                    double ang = Math.PI / 4 * k;
-                    path.moveTo(12 + (float) Math.cos(ang) * 6.2f, 12 + (float) Math.sin(ang) * 6.2f);
-                    path.lineTo(12 + (float) Math.cos(ang) * 9.2f, 12 + (float) Math.sin(ang) * 9.2f);
+                    double base = Math.PI / 4 * k;
+                    double[] ang = {base - 0.30, base - 0.20, base + 0.20, base + 0.30};
+                    float[] rad = {7.0f, 9.6f, 9.6f, 7.0f};
+                    for (int j = 0; j < 4; j++) {
+                        float x = 12f + (float) Math.cos(ang[j]) * rad[j], y = 12f + (float) Math.sin(ang[j]) * rad[j];
+                        if (k == 0 && j == 0) path.moveTo(x, y);
+                        else path.lineTo(x, y);
+                    }
                 }
+                path.close();
+                path.addCircle(12, 12, 3f, Path.Direction.CW);
+                break;
+            case ICON_WIFI:
+                for (float rad : new float[]{4f, 8f, 12f}) {
+                    path.addArc(new RectF(12f - rad, 20f - rad, 12f + rad, 20f + rad), 225f, 90f);
+                }
+                path.addCircle(12f, 19f, 0.8f, Path.Direction.CW);
+                break;
+            case ICON_DISPLAY:
+                path.addRoundRect(new RectF(3f, 4.5f, 21f, 16f), 2f, 2f, Path.Direction.CW);
+                path.moveTo(12f, 16f);
+                path.lineTo(12f, 19.5f);
+                path.moveTo(8f, 19.5f);
+                path.lineTo(16f, 19.5f);
+                break;
+            case ICON_MOON:
+                path.addPath(moon);
+                break;
+            case ICON_PLAY:
+                path.moveTo(8.5f, 6f);
+                path.lineTo(18f, 12f);
+                path.lineTo(8.5f, 18f);
+                path.close();
                 break;
             case ICON_PREV:
                 path.moveTo(15, 6);

@@ -16,6 +16,7 @@ import android.provider.Settings;
 import android.widget.Toast;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -96,7 +97,17 @@ public final class MainActivity extends Activity implements CalmView.Host {
     @Override
     protected void onResume() {
         super.onResume();
+        view.wake();
         refresh();
+    }
+
+    /** Moves a pin from an uninstalled app to its replacement (YouTube to SmartTube). */
+    private void migratePins(List<AppEntry> apps) {
+        java.util.Set<String> installed = new HashSet<>();
+        for (AppEntry e : apps) installed.add(e.pkg);
+        List<String> pins = AppOrder.parsePins(settings.pins());
+        List<String> next = AppOrder.migratePins(pins, installed);
+        if (!next.equals(pins)) settings.pins(AppOrder.joinPins(next));
     }
 
     @Override
@@ -146,6 +157,7 @@ public final class MainActivity extends Activity implements CalmView.Host {
                     public void run() {
                         if (gen != generation || isDestroyed()) return;
                         lastApps = apps;
+                        migratePins(apps);
                         view.setData(apps, snapshot);
                     }
                 });
@@ -166,7 +178,10 @@ public final class MainActivity extends Activity implements CalmView.Host {
             if (alt == null) alt = pm.getLaunchIntentForPackage(e.pkg);
             ok = alt != null && start(alt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         }
-        if (ok) settings.log(LaunchLog.record(settings.log(), e.pkg));
+        if (ok) {
+            settings.log(LaunchLog.record(settings.log(), e.pkg));
+            settings.times(LaunchLog.recordTime(settings.times(), e.pkg, System.currentTimeMillis()));
+        }
         else say("Couldn't open " + e.label);
     }
 
@@ -194,6 +209,13 @@ public final class MainActivity extends Activity implements CalmView.Host {
             }
         }
         say("Settings isn't available");
+    }
+
+    @Override
+    public void openSettings(String action) {
+        Intent s = new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (s.resolveActivity(getPackageManager()) != null && start(s)) return;
+        openSettings();
     }
 
     private boolean start(Intent i) {
