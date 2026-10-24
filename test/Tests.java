@@ -114,6 +114,14 @@ public final class Tests {
                 new Box(300, 210, 400, 310),   // 2 diagonal, close
         };
         eq(SpatialNav.find(b, 0, SpatialNav.DOWN, 150f), 1, "straight below wins over a closer diagonal");
+        // A big neighbour that merely extends past us is not "ahead": it starts on our side of the edge.
+        Box small = new Box(100, 100, 200, 200);
+        eq(SpatialNav.find(new Box[]{small, new Box(110, 50, 190, 400)}, 0, SpatialNav.DOWN, 150f), -1, "tall box starting above is not below");
+        eq(SpatialNav.find(new Box[]{small, new Box(110, 101, 190, 190)}, 0, SpatialNav.UP, 150f), -1, "box inside our top half is not above");
+        eq(SpatialNav.find(new Box[]{small, new Box(50, 110, 400, 190)}, 0, SpatialNav.RIGHT, 150f), -1, "wide box starting left is not to the right");
+        eq(SpatialNav.find(new Box[]{small, new Box(101, 110, 190, 190)}, 0, SpatialNav.LEFT, 150f), -1, "box inside our left half is not to the left");
+        eq(SpatialNav.find(new Box[]{small, new Box(-200, 110, 99, 190)}, 0, SpatialNav.LEFT, 150f), 1, "a real left neighbour is found");
+        eq(SpatialNav.find(new Box[]{small, new Box(110, -200, 190, 99)}, 0, SpatialNav.UP, 150f), 1, "a real upper neighbour is found");
         // Equal scores: the lower index wins, deterministically.
         Box[] t = {new Box(0, 0, 10, 10), new Box(20, 20, 30, 30), new Box(-20, 20, -10, 30)};
         eq(SpatialNav.find(t, 0, SpatialNav.DOWN, 5f), 1, "tie goes to the lower index");
