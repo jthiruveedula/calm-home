@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="room">#FF06060A</color>
+    <!-- The window is painted the room colour before the first frame, so there is no white flash. -->
+    <style name="Calm" parent="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/room</item>
+        <item name="android:colorBackground">@color/room</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+</resources>
