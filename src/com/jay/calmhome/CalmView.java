@@ -107,11 +107,14 @@ final class CalmView extends View {
 
     /** New app list from the loader thread. */
     void setData(List<AppEntry> apps, Map<String, TileArt> newArt) {
+        boolean first = !loaded;
         all = apps;
         art = newArt;
         loaded = true;
         recompute();
-        rebuild(null);
+        // The first real data replaces a placeholder-only screen: start on the first favourite,
+        // not wherever focus happened to sit while the list was loading.
+        rebuild(first ? "#default" : null);
     }
 
     void showHome() {
