@@ -17,7 +17,7 @@ import android.graphics.Typeface;
  */
 final class Gfx {
     static final int ICON_GEAR = 0, ICON_SLIDERS = 1, ICON_PREV = 2, ICON_NEXT = 3, ICON_GRID = 4,
-            ICON_WIFI = 5, ICON_DISPLAY = 6, ICON_MOON = 7, ICON_PLAY = 8, ICON_SHIELD = 9, ICON_REMOTE = 10;
+            ICON_WIFI = 5, ICON_DISPLAY = 6, ICON_MOON = 7, ICON_PLAY = 8, ICON_SHIELD = 9, ICON_REMOTE = 10, ICON_PHOTO = 11;
 
     final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -171,6 +171,15 @@ final class Gfx {
                 path.lineTo(12f, 19.5f);
                 path.moveTo(8f, 19.5f);
                 path.lineTo(16f, 19.5f);
+                break;
+            case ICON_PHOTO:
+                path.addRoundRect(new RectF(3f, 4.5f, 21f, 19.5f), 2.5f, 2.5f, Path.Direction.CW);
+                path.moveTo(5.5f, 17f);
+                path.lineTo(10f, 11.5f);
+                path.lineTo(13.5f, 15f);
+                path.lineTo(15.5f, 13f);
+                path.lineTo(18.5f, 17f);
+                path.addCircle(15.5f, 8.8f, 1.5f, Path.Direction.CW);
                 break;
             case ICON_REMOTE:
                 path.addRoundRect(new RectF(8f, 2.5f, 16f, 21.5f), 4f, 4f, Path.Direction.CW);

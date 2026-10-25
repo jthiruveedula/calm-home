@@ -33,9 +33,19 @@ final class CalmView extends View {
         void openSettings();
 
         void openSettings(String action);
+
+        /** Starts Photo Drop's server. @return the upload URL, or null without a LAN address. */
+        String startDrop();
+
+        void stopDrop();
+
+        void clearPhotos();
+
+        /** Asks for the next slideshow photo (from the newest when restart); it arrives through slideReady(). */
+        void requestSlide(boolean restart);
     }
 
-    static final int HOME = 0, APPS = 1, CUSTOM = 2, QUICK = 3;
+    static final int HOME = 0, APPS = 1, CUSTOM = 2, QUICK = 3, DROP = 4;
     static final int MAX_DOCK = HomeLayout.MAX_DOCK;
 
     private static final int CIRCLE = 0, FAV = 1, MORE = 2, PRIMARY = 3, CHIP = 4, APPT = 5,
@@ -102,6 +112,18 @@ final class CalmView extends View {
     private float amb;
     /** 1 right after Select, decaying to 0: the focused item dips a little, like a real button. */
     private float press;
+
+    // Photo Drop and the slideshow
+    private String dropUrl;
+    private QrCode qr;
+    private int photoCount;
+    private final List<android.graphics.Bitmap> thumbs = new ArrayList<>();
+    private boolean clearArmed;
+    private android.graphics.Bitmap slideCur, slidePrev, slideNext;
+    private long slideSince, fadeSince = -100000L;
+    private boolean slideWanted;
+    private static final long SLIDE_MS = 12000L, SLIDE_FADE_MS = 1600L;
+    private final android.graphics.Matrix slideM = new android.graphics.Matrix();
     /** Toggle knob positions (0 off .. 1 on) by item id, so switches slide instead of jumping. */
     private final Map<String, float[]> knobs = new java.util.HashMap<>();
     private final Runnable tick = new Runnable() {
@@ -151,6 +173,7 @@ final class CalmView extends View {
     void wake() {
         lastInput = SystemClock.uptimeMillis();
         ambientOn = false;
+        slideCur = slidePrev = slideNext = null;
         invalidate();
     }
 
@@ -179,10 +202,23 @@ final class CalmView extends View {
     }
 
     private static final String TAG = "CalmHome";
-    private static final String[] SCREENS = {"home", "apps", "custom", "quick"};
+    private static final String[] SCREENS = {"home", "apps", "custom", "quick", "drop"};
 
     private void go(int to) {
         Log.i(TAG, "screen " + SCREENS[to]);
+        if (screen == DROP && to != DROP) host.stopDrop();
+        if (to == DROP) {
+            dropUrl = host.startDrop();
+            qr = null;
+            if (dropUrl != null) {
+                try {
+                    qr = QrCode.encode(dropUrl);
+                } catch (IllegalArgumentException e) {
+                    qr = null;
+                }
+            }
+            clearArmed = false;
+        }
         screen = to;
         camY = camGoal = 0f;
         screenSince = SystemClock.uptimeMillis();
@@ -200,6 +236,7 @@ final class CalmView extends View {
         if (screen == HOME) buildHome();
         else if (screen == APPS) buildApps();
         else if (screen == CUSTOM) buildCustom();
+        else if (screen == DROP) buildDrop();
         else {
             buildHome();
             under.addAll(items);
@@ -223,7 +260,7 @@ final class CalmView extends View {
     }
 
     private int defaultFocus() {
-        int want = screen == HOME ? HERO : screen == APPS ? APPT : screen == QUICK ? ROW : TOGGLE;
+        int want = screen == HOME ? HERO : screen == APPS ? APPT : screen == QUICK ? ROW : screen == DROP ? PRIMARY : TOGGLE;
         for (int i = 0; i < items.size(); i++) {
             if (items.get(i).kind == want) return i;
         }
@@ -389,19 +426,22 @@ final class CalmView extends View {
                 {"Applications", "Storage, updates, force stop", Gfx.ICON_GRID, "android.settings.APPLICATION_SETTINGS"},
                 {"My Fire TV", "System updates, restart, about", Gfx.ICON_DISPLAY, "com.amazon.device.settings.action.DEVICE"},
                 {"Ambient screen", "A calm clock over your scenes", Gfx.ICON_MOON, "#ambient"},
+                {"Photo Drop", "Send photos from your phone", Gfx.ICON_PHOTO, "#drop"},
                 {"Customize Calm Home", "Clock, scenes, glass, accent", Gfx.ICON_SLIDERS, "#custom"},
                 {"All settings", "Display, sound, privacy and ads", Gfx.ICON_GEAR, null},
         };
         for (int i = 0; i < rows.length; i++) {
             final String action = (String) rows[i][3];
-            Item r = add(new Item(ROW, "q:" + i, PANEL_L + 32f, 226f + i * 110f, PANEL_R - PANEL_L - 64f, 96f));
+            Item r = add(new Item(ROW, "q:" + i, PANEL_L + 32f, 214f + i * 98f, PANEL_R - PANEL_L - 64f, 88f));
             r.label = (String) rows[i][0];
             r.sub = (String) rows[i][1];
             r.icon = (Integer) rows[i][2];
             r.select = new Runnable() {
                 @Override
                 public void run() {
-                    if ("#ambient".equals(action)) {
+                    if ("#drop".equals(action)) {
+                        go(DROP);
+                    } else if ("#ambient".equals(action)) {
                         go(HOME);
                         ambientOn = true;
                     } else if ("#custom".equals(action)) {
@@ -436,6 +476,7 @@ final class CalmView extends View {
                 {Settings.PHOTO, "Photo controls", "Name and arrows"},
                 {Settings.QUIET, "Quiet hours", "Dim 11 pm to 6:30 am"},
                 {Settings.AMBIENT, "Ambient screen", "Clock after 3 idle min"},
+                {Settings.SLIDES, "Photo slideshow", "Your photos on ambient"},
         };
         for (int i = 0; i < defs.length; i++) {
             final String key = defs[i][0];
@@ -485,6 +526,94 @@ final class CalmView extends View {
                 }
             };
         }
+    }
+
+    private void buildDrop() {
+        contentH = H;
+        float dw = 80f + g.measure("Done", 24f, g.medium);
+        Item done = add(new Item(PRIMARY, "done", 1824f - dw, 84f, dw, 72f));
+        done.label = "Done";
+        done.size = 24f;
+        done.select = new Runnable() {
+            @Override
+            public void run() {
+                go(HOME);
+            }
+        };
+        float pw = 72f + 30f + g.measure("Play slideshow", 24f, g.medium);
+        Item play = add(new Item(PRIMARY, "play", 856f, 904f, pw, 72f));
+        play.label = photoCount > 0 ? "Play slideshow" : "No photos yet";
+        play.size = 24f;
+        play.select = new Runnable() {
+            @Override
+            public void run() {
+                if (photoCount == 0) return;
+                go(HOME);
+                ambientOn = true;
+            }
+        };
+        String cl = clearArmed ? "Press again to delete all" : "Clear all photos";
+        Item clear = add(new Item(CHIP, "clear", play.l + pw + 20f, 912f, 52f + g.measure(cl, 20f, g.medium), 56f));
+        clear.label = cl;
+        clear.dark = true;
+        clear.on = clearArmed;
+        clear.select = new Runnable() {
+            @Override
+            public void run() {
+                if (photoCount == 0) return;
+                if (!clearArmed) {
+                    clearArmed = true;
+                } else {
+                    clearArmed = false;
+                    host.clearPhotos();
+                }
+                rebuild("clear");
+            }
+        };
+    }
+
+    /** New photo count and newest thumbnails from the loader thread. */
+    void setPhotos(int count, List<android.graphics.Bitmap> newThumbs) {
+        photoCount = count;
+        thumbs.clear();
+        thumbs.addAll(newThumbs);
+        if (count == 0) {
+            slideCur = slidePrev = slideNext = null;
+        }
+        if (screen == DROP) rebuild(null);
+        else invalidate();
+    }
+
+    /** A decoded slideshow photo, or null when there is none. */
+    void slideReady(android.graphics.Bitmap b) {
+        slideWanted = false;
+        if (b == null) return;
+        long now = SystemClock.uptimeMillis();
+        if (slideCur == null) {
+            slideCur = b;
+            slideSince = now;
+            fadeSince = now;
+            slidePrev = null;
+            requestSlide();
+        } else if (slideNext == null) {
+            slideNext = b;
+        }
+        invalidate();
+    }
+
+    private void requestSlide() {
+        if (slideWanted || photoCount == 0 || !st.flag(Settings.SLIDES)) return;
+        slideWanted = true;
+        host.requestSlide(slideCur == null);
+    }
+
+    /** Back in the foreground: a Photo Drop screen gets a fresh server and code. */
+    void resumed() {
+        if (screen == DROP) go(DROP);
+    }
+
+    void paused() {
+        if (screen == DROP) host.stopDrop();
     }
 
     private void chips(final String key, String[] labels, float y, int selected) {
@@ -650,7 +779,10 @@ final class CalmView extends View {
         float ka = 1f - (float) Math.exp(-dt / 380f);
         float target = ambientOn ? 1f : 0f;
         amb += (target - amb) * ka;
-        if (Math.abs(target - amb) < 0.004f) amb = target;
+        if (Math.abs(target - amb) < 0.004f) {
+            amb = target;
+            if (amb == 0f && slideCur != null) slideCur = slidePrev = slideNext = null; // free ~8 MB once hidden
+        }
         else moving = true;
         return moving;
     }
@@ -710,7 +842,8 @@ final class CalmView extends View {
         if (moving || fading) {
             postOnAnimation(tick);
         } else {
-            postDelayed(tick, st.motion() == 2 ? 500L : amb >= 1f ? 83L : 42L);
+            boolean slides = amb > 0f && slideCur != null;
+            postDelayed(tick, slides ? 42L : st.motion() == 2 ? 500L : amb >= 1f ? 83L : 42L);
         }
     }
 
@@ -741,6 +874,8 @@ final class CalmView extends View {
             drawHomeStatic(c);
         } else if (screen == APPS) {
             drawAppsStatic(c);
+        } else if (screen == DROP) {
+            drawDropStatic(c);
         } else {
             drawCustomStatic(c);
         }
@@ -767,8 +902,116 @@ final class CalmView extends View {
         return moving;
     }
 
+    private void drawDropStatic(Canvas c) {
+        g.text.setLetterSpacing(-0.023f);
+        g.label(c, "Photo Drop", 96f, 122f, 64f, g.medium, 0xFFFFFFFF, Paint.Align.LEFT);
+        g.text.setLetterSpacing(0f);
+        g.label(c, "Send photos from your phone. They play as a slow slideshow on the ambient screen.", 96f, 169f, 24f,
+                g.regular, 0xD9FFFFFF, Paint.Align.LEFT);
+        g.glass(c, 96f, 208f, 776f, 1016f, 40f, 0f);
+        g.glass(c, 816f, 208f, 1824f, 1016f, 40f, 0f);
+        float cx = 436f;
+        if (qr != null) {
+            float box = 460f, x0 = cx - box / 2f, y0 = 248f;
+            g.fill.setShader(null);
+            g.fill.setColor(0xFFFFFFFF);
+            c.drawRoundRect(x0, y0, x0 + box, y0 + box, 28f, 28f, g.fill);
+            float m = box / (qr.size + 8);
+            float ox0 = x0 + 4 * m, oy0 = y0 + 4 * m;
+            g.fill.setColor(0xFF05070D);
+            for (int y = 0; y < qr.size; y++) {
+                for (int x = 0; x < qr.size; x++) {
+                    if (qr.dark(x, y)) c.drawRect(ox0 + x * m, oy0 + y * m, ox0 + (x + 1) * m + 0.6f, oy0 + (y + 1) * m + 0.6f, g.fill);
+                }
+            }
+            g.label(c, "Scan with your phone's camera", cx, 776f, 28f, g.medium, 0xFFFFFFFF, Paint.Align.CENTER);
+            g.label(c, "or open " + dropUrl.replace("http://", ""), cx, 816f, 22f, g.regular, 0xCCFFFFFF, Paint.Align.CENTER);
+            g.label(c, "Phone and TV must be on the same Wi-Fi.", cx, 900f, 20f, g.regular, 0x99FFFFFF, Paint.Align.CENTER);
+            g.label(c, "The link works only while this screen is open.", cx, 930f, 20f, g.regular, 0x99FFFFFF, Paint.Align.CENTER);
+        } else {
+            g.label(c, "Connect the TV to Wi-Fi", cx, 560f, 30f, g.medium, 0xFFFFFFFF, Paint.Align.CENTER);
+            g.label(c, "to use Photo Drop.", cx, 600f, 24f, g.regular, 0xCCFFFFFF, Paint.Align.CENTER);
+        }
+        String n = photoCount == 1 ? "1 photo on this TV" : photoCount + " photos on this TV";
+        g.label(c, n, 856f, 278f, 32f, g.medium, 0xFFFFFFFF, Paint.Align.LEFT);
+        g.label(c, "Newest first · up to " + DropHttp.MAX_PHOTOS + " are kept", 856f, 314f, 20f, g.regular, 0xB3FFFFFF,
+                Paint.Align.LEFT);
+        if (thumbs.isEmpty()) {
+            g.label(c, "Photos you send appear here.", 856f, 560f, 24f, g.regular, 0x99FFFFFF, Paint.Align.LEFT);
+        }
+        for (int i = 0; i < thumbs.size() && i < 6; i++) {
+            float tx = 856f + (i % 3) * 316f, ty = 348f + (i / 3) * 186f;
+            drawCover(c, thumbs.get(i), tx, ty, 300f, 170f, 18f, 255);
+        }
+    }
+
+    /** Draws a bitmap scaled to cover the box (centre crop) with rounded corners. */
+    private void drawCover(Canvas c, android.graphics.Bitmap b, float x, float y, float w, float h, float r, int alpha) {
+        if (b == null || b.isRecycled()) return;
+        float k = Math.max(w / b.getWidth(), h / b.getHeight());
+        android.graphics.BitmapShader sh = new android.graphics.BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        g.matrix().setScale(k, k);
+        g.matrix().postTranslate(x + (w - b.getWidth() * k) / 2f, y + (h - b.getHeight() * k) / 2f);
+        sh.setLocalMatrix(g.matrix());
+        g.img.setShader(sh);
+        g.img.setAlpha(alpha);
+        c.drawRoundRect(x, y, x + w, y + h, r, r, g.img);
+        g.img.setShader(null);
+        g.img.setAlpha(255);
+    }
+
+    /** Full-screen photo with a slow push-in (Ken Burns). */
+    private void drawSlide(Canvas c, android.graphics.Bitmap b, long age, int alpha) {
+        if (b == null || b.isRecycled()) return;
+        float t = Math.min(1f, age / (float) (SLIDE_MS + SLIDE_FADE_MS));
+        float k = Math.max(W / b.getWidth(), H / b.getHeight()) * (1.0f + 0.07f * t);
+        slideM.setScale(k, k);
+        slideM.postTranslate((W - b.getWidth() * k) / 2f, (H - b.getHeight() * k) / 2f);
+        g.img.setAlpha(alpha);
+        c.drawBitmap(b, slideM, g.img);
+        g.img.setAlpha(255);
+    }
+
+    /** @return true while the slideshow is animating */
+    private boolean drawSlideshow(Canvas c, long now) {
+        if (slideCur == null) {
+            requestSlide();
+            return false;
+        }
+        if (slideNext != null && now - slideSince >= SLIDE_MS) {
+            slidePrev = slideCur;
+            slideCur = slideNext;
+            slideNext = null;
+            slideSince = now;
+            fadeSince = now;
+            requestSlide();
+        }
+        int a = Math.round(amb * 255f);
+        float fade = Math.min(1f, (now - fadeSince) / (float) SLIDE_FADE_MS);
+        if (slidePrev != null && fade < 1f) drawSlide(c, slidePrev, now - slideSince + SLIDE_MS, a);
+        drawSlide(c, slideCur, now - slideSince, Math.round(a * (slidePrev == null ? 1f : fade)));
+        if (fade >= 1f) slidePrev = null;
+        g.fill.setShader(new LinearGradient(0f, H * 0.55f, 0f, H, 0x00000000, ((Math.round(amb * 0xB3)) << 24),
+                Shader.TileMode.CLAMP));
+        c.drawRect(0f, H * 0.55f, W, H, g.fill);
+        g.fill.setShader(null);
+        return true;
+    }
+
     /** A big, slowly wandering clock over the scenes; it moves a little so nothing burns in. */
     private void drawAmbient(Canvas c, long now) {
+        if (photoCount > 0 && st.flag(Settings.SLIDES) && drawSlideshow(c, now)) {
+            int a = Math.round(amb * 255f);
+            g.text.setTypeface(g.light);
+            g.text.setTextSize(150f);
+            g.text.setColor((a << 24) | 0xFFFFFF);
+            g.text.setTextAlign(Paint.Align.LEFT);
+            g.text.setLetterSpacing(-0.04f);
+            c.drawText(clockText, 96f, 930f, g.text);
+            g.text.setLetterSpacing(0f);
+            g.label(c, dateText, 104f, 990f, 32f, g.regular, (Math.round(amb * 0xD9) << 24) | 0xFFFFFF, Paint.Align.LEFT);
+            return;
+        }
         double t = (now - t0) / 1000.0;
         float dx = (float) Math.sin(t / 47.0) * 60f, dy = (float) Math.cos(t / 61.0) * 34f;
         int a = Math.round(amb * 255f);

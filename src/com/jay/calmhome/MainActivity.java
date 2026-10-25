@@ -35,6 +35,9 @@ public final class MainActivity extends Activity implements CalmView.Host {
     private int generation;
     private Toast toast;
     private List<AppEntry> lastApps = java.util.Collections.emptyList();
+    private PhotoStore photos;
+    private PhotoServer server;
+    private int slideIndex;
 
     private final BroadcastReceiver packages = new BroadcastReceiver() {
         @Override
@@ -81,6 +84,45 @@ public final class MainActivity extends Activity implements CalmView.Host {
         pf.addAction(Intent.ACTION_PACKAGE_REPLACED);
         pf.addDataScheme("package");
         registerReceiver(packages, pf);
+        photos = new PhotoStore(getFilesDir());
+        server = new PhotoServer(photos, new java.io.File(getCacheDir(), "drop"), readPage(), new PhotoServer.Listener() {
+            @Override
+            public void onPhotoAdded(int count) {
+                refreshPhotos();
+            }
+        });
+    }
+
+    private String readPage() {
+        try (java.io.InputStream in = getResources().openRawResource(R.raw.drop)) {
+            java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            for (int n; (n = in.read(buf)) > 0; ) b.write(buf, 0, n);
+            return b.toString("UTF-8");
+        } catch (java.io.IOException e) {
+            return "<h1>Photo Drop</h1>";
+        }
+    }
+
+    /** Photo count and the newest thumbnails, decoded off the UI thread. */
+    private void refreshPhotos() {
+        bg.post(new Runnable() {
+            @Override
+            public void run() {
+                final int count = photos.count();
+                final List<android.graphics.Bitmap> th = new java.util.ArrayList<>();
+                for (String n : photos.newest(6)) {
+                    android.graphics.Bitmap b = photos.load(n, 320, 180, false);
+                    if (b != null) th.add(b);
+                }
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isDestroyed()) view.setPhotos(count, th);
+                    }
+                });
+            }
+        });
     }
 
     @Override
@@ -99,6 +141,14 @@ public final class MainActivity extends Activity implements CalmView.Host {
         super.onResume();
         view.wake();
         refresh();
+        refreshPhotos();
+        view.resumed();
+    }
+
+    @Override
+    protected void onPause() {
+        view.paused();
+        super.onPause();
     }
 
     /** Moves a pin from an uninstalled app to its replacement (YouTube to SmartTube). */
@@ -124,6 +174,7 @@ public final class MainActivity extends Activity implements CalmView.Host {
 
     @Override
     protected void onDestroy() {
+        server.stop();
         unregisterReceiver(packages);
         worker.quitSafely();
         super.onDestroy();
@@ -216,6 +267,51 @@ public final class MainActivity extends Activity implements CalmView.Host {
         Intent s = new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         if (s.resolveActivity(getPackageManager()) != null && start(s)) return;
         openSettings();
+    }
+
+    @Override
+    public String startDrop() {
+        return server.start();
+    }
+
+    @Override
+    public void stopDrop() {
+        server.stop();
+    }
+
+    @Override
+    public void clearPhotos() {
+        bg.post(new Runnable() {
+            @Override
+            public void run() {
+                photos.clear();
+                refreshPhotos();
+            }
+        });
+    }
+
+    @Override
+    public void requestSlide(final boolean restart) {
+        bg.post(new Runnable() {
+            @Override
+            public void run() {
+                if (restart) slideIndex = 0;
+                List<String> names = photos.list();
+                android.graphics.Bitmap b = null;
+                if (!names.isEmpty()) {
+                    // Newest first, then around again; tolerate photos added or removed meanwhile.
+                    int i = ((slideIndex++ % names.size()) + names.size()) % names.size();
+                    b = photos.load(names.get(names.size() - 1 - i), 1280, 720, true);
+                }
+                final android.graphics.Bitmap out = b;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isDestroyed()) view.slideReady(out);
+                    }
+                });
+            }
+        });
     }
 
     private boolean start(Intent i) {

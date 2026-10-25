@@ -1,6 +1,7 @@
 import com.jay.calmhome.Ambient;
 import com.jay.calmhome.AppEntry;
 import com.jay.calmhome.AppOrder;
+import com.jay.calmhome.DropHttp;
 import com.jay.calmhome.HomeLayout;
 import com.jay.calmhome.Motion;
 import com.jay.calmhome.LaunchLog;
@@ -44,6 +45,7 @@ public final class Tests {
         springTests();
         layoutTests();
         idleTests();
+        dropTests();
         System.out.println(run + " checks, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -581,5 +583,64 @@ public final class Tests {
         check(!Ambient.idle(Ambient.IDLE_MS - 1, 0, Ambient.IDLE_MS), "not idle just before");
         check(!Ambient.idle(999_999_999L, 0, 0), "zero timeout never idles");
         check(!Ambient.idle(999_999_999L, 0, -5), "negative timeout never idles");
+    }
+
+    // ---- Photo Drop -----------------------------------------------------------------------------
+
+    static void dropTests() {
+        DropHttp.Request r = DropHttp.parse("GET /123456 HTTP/1.1\r\nHost: tv\r\nContent-Length: 10\r\n");
+        check(r != null && r.method.equals("GET") && r.path.equals("/123456"), "parse GET");
+        eq(r.header("Content-Length"), "10", "header lookup is case-insensitive");
+        eq(DropHttp.route(r, "123456"), DropHttp.PAGE, "page with the right code");
+        eq(DropHttp.route(r, "654321"), DropHttp.FORBIDDEN, "wrong code refused");
+        eq(DropHttp.route(DropHttp.parse("GET / HTTP/1.1"), "123456"), DropHttp.NOT_FOUND, "root reveals nothing");
+        eq(DropHttp.route(DropHttp.parse("POST /123456/upload?n=a.jpg HTTP/1.1"), "123456"), DropHttp.UPLOAD, "upload route");
+        eq(DropHttp.route(DropHttp.parse("GET /123456/upload HTTP/1.1"), "123456"), DropHttp.NOT_FOUND, "upload needs POST");
+        eq(DropHttp.route(DropHttp.parse("GET /123456/status HTTP/1.1"), "123456"), DropHttp.STATUS, "status route");
+        eq(DropHttp.route(DropHttp.parse("GET /123456/a/b HTTP/1.1"), "123456"), DropHttp.NOT_FOUND, "deep paths refused");
+        eq(DropHttp.route(DropHttp.parse("GET /1234567 HTTP/1.1"), "123456"), DropHttp.FORBIDDEN, "longer code refused");
+        eq(DropHttp.route(DropHttp.parse("GET /12345 HTTP/1.1"), "123456"), DropHttp.FORBIDDEN, "prefix code refused");
+        eq(DropHttp.route(null, "123456"), DropHttp.BAD, "null request");
+        eq(DropHttp.route(r, ""), DropHttp.FORBIDDEN, "empty code never matches");
+        for (String bad : new String[]{null, "", "DELETE /x HTTP/1.1", "GET /x", "GET x HTTP/1.1", "GET /../etc HTTP/1.1",
+                "GET /x FTP/1.0", "BREW /pot HTTP/1.1"}) {
+            check(DropHttp.parse(bad) == null, "rejects malformed: " + bad);
+        }
+        StringBuilder big = new StringBuilder("GET / HTTP/1.1\n");
+        while (big.length() <= DropHttp.MAX_HEADER) big.append("X: yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n");
+        check(DropHttp.parse(big.toString()) == null, "oversized headers refused");
+        eq(DropHttp.parse("POST /c/upload?name=x HTTP/1.1").query, "name=x", "query split");
+        eq(DropHttp.uploadLength(DropHttp.parse("POST /c/upload HTTP/1.1\nContent-Length: 2048")), 2048L, "length ok");
+        eq(DropHttp.uploadLength(DropHttp.parse("POST /c/upload HTTP/1.1\nContent-Length: 0")), -1L, "empty refused");
+        eq(DropHttp.uploadLength(DropHttp.parse("POST /c/upload HTTP/1.1\nContent-Length: 999999999")), -1L, "too big refused");
+        eq(DropHttp.uploadLength(DropHttp.parse("POST /c/upload HTTP/1.1\nContent-Length: -5")), -1L, "negative refused");
+        eq(DropHttp.uploadLength(DropHttp.parse("POST /c/upload HTTP/1.1")), -1L, "missing length refused");
+        eq(DropHttp.uploadLength(DropHttp.parse("POST /c/upload HTTP/1.1\nContent-Length: " + DropHttp.MAX_UPLOAD)),
+                (long) DropHttp.MAX_UPLOAD, "limit is inclusive");
+        byte[] jpg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0, 0, 0, 0, 0, 0, 0};
+        byte[] png = {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 0, 0, 0, 0};
+        byte[] webp = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'};
+        byte[] html = "<html><body>".getBytes();
+        eq(DropHttp.imageKind(jpg, 12), "jpeg", "jpeg sniffed");
+        eq(DropHttp.imageKind(png, 12), "png", "png sniffed");
+        eq(DropHttp.imageKind(webp, 12), "webp", "webp sniffed");
+        eq(DropHttp.imageKind(html, 12), null, "html is not an image");
+        eq(DropHttp.imageKind(jpg, 4), null, "too short");
+        eq(DropHttp.imageKind(null, 0), null, "null bytes");
+        java.security.SecureRandom rnd = new java.security.SecureRandom();
+        for (int i = 0; i < 200; i++) check(DropHttp.newCode(rnd).matches("\\d{6}"), "code is 6 digits");
+        eq(DropHttp.sampleSize(4032, 3024, 1920, 1080), 2, "12 MP photo halves");
+        eq(DropHttp.sampleSize(8000, 6000, 1920, 1080), 4, "huge photo quarters");
+        eq(DropHttp.sampleSize(1920, 1080, 1920, 1080), 1, "exact size untouched");
+        eq(DropHttp.sampleSize(800, 600, 1920, 1080), 1, "small photo untouched");
+        eq(DropHttp.sampleSize(0, 600, 1920, 1080), 1, "bad size safe");
+        eq(DropHttp.prune(Arrays.asList("p3.jpg", "p1.jpg", "p2.jpg"), 2), Arrays.asList("p1.jpg"), "prune oldest");
+        eq(DropHttp.prune(Arrays.asList("p1.jpg"), 5), Collections.<String>emptyList(), "nothing to prune");
+        eq(DropHttp.prune(Arrays.asList("a", "b"), -1), Arrays.asList("a", "b"), "negative max prunes all");
+        eq(DropHttp.pickLanAddress(Arrays.asList("8.8.8.8", "10.0.0.2", "192.168.1.146")), "192.168.1.146", "prefers 192.168");
+        eq(DropHttp.pickLanAddress(Arrays.asList("172.20.10.3", "100.64.0.1")), "172.20.10.3", "172.16/12 is private");
+        eq(DropHttp.pickLanAddress(Arrays.asList("172.40.0.1", "8.8.8.8")), null, "no private address");
+        check(DropHttp.responseHead(200, "text/html", 5).startsWith("HTTP/1.1 200 OK\r\n"), "response head");
+        check(DropHttp.responseHead(413, "text/plain", 0).contains("Content-Length: 0"), "response length");
     }
 }

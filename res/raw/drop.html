@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Photo Drop · Calm Home</title>
+<style>
+  :root { --bg:#07080f; --text:#f4f5fb; --muted:rgba(244,245,251,.66); --line:rgba(255,255,255,.14); --accent:#7fd1ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+    font:16px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing:antialiased; }
+  .sky { position:fixed; inset:-30%; z-index:-1; filter:blur(70px); opacity:.6;
+    background: radial-gradient(40% 40% at 20% 25%, #2d4bff, transparent 70%),
+                radial-gradient(40% 40% at 80% 75%, #ff7a45, transparent 70%); }
+  main { max-width:520px; margin:0 auto; padding:28px 20px 48px; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:600; color:var(--muted); font-size:15px; }
+  h1 { font-weight:300; font-size:38px; letter-spacing:-.03em; margin:26px 0 6px; }
+  p { color:var(--muted); margin:0 0 22px; }
+  label.pick { display:block; text-align:center; padding:28px 18px; border-radius:22px; cursor:pointer;
+    background:rgba(255,255,255,.08); border:1.5px dashed rgba(255,255,255,.3); font-weight:600; font-size:18px; }
+  label.pick small { display:block; font-weight:400; color:var(--muted); font-size:14px; margin-top:4px; }
+  input[type=file] { display:none; }
+  .bar { height:6px; border-radius:6px; background:rgba(255,255,255,.12); margin:22px 0 8px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--accent); transition:width .25s ease; }
+  #status { font-size:15px; color:var(--muted); min-height:24px; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:16px; }
+  .grid div { position:relative; aspect-ratio:1; border-radius:12px; overflow:hidden; background:#111; }
+  .grid img { width:100%; height:100%; object-fit:cover; display:block; opacity:.55; transition:opacity .3s; }
+  .grid div.ok img { opacity:1; }
+  .grid div.bad::after { content:"!"; position:absolute; inset:0; display:grid; place-items:center; background:rgba(160,0,0,.5); font-size:28px; font-weight:700; }
+  .grid div.ok::after { content:"✓"; position:absolute; right:6px; bottom:4px; font-weight:700; text-shadow:0 1px 3px #000; }
+  footer { margin-top:28px; font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="sky"></div>
+<main>
+  <div class="brand"><svg width="22" height="22" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#121530"/><path d="M20 7a10 10 0 1 0 6 16 8 8 0 1 1-6-16z" fill="#fff4d6"/></svg>Calm Home · Photo Drop</div>
+  <h1>Send photos to your TV</h1>
+  <p>They play as a slow slideshow on the TV's ambient screen. Photos travel only over your home Wi-Fi.</p>
+  <label class="pick">Choose photos<small>Up to 50 at a time</small><input id="f" type="file" accept="image/*" multiple></label>
+  <div class="bar"><i id="b"></i></div>
+  <div id="status">Ready.</div>
+  <div class="grid" id="g"></div>
+  <footer>Keep the Photo Drop screen open on the TV while sending. This link stops working when you leave it.</footer>
+</main>
+<script>
+(function () {
+  var CODE = "{{CODE}}";
+  var f = document.getElementById('f'), g = document.getElementById('g'),
+      st = document.getElementById('status'), bar = document.getElementById('b');
+
+  function shrink(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var max = 1920, w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, max / Math.max(w, h));
+        var c = document.createElement('canvas');
+        c.width = Math.round(w * k); c.height = Math.round(h * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) { b ? resolve(b) : reject(new Error('encode')); }, 'image/jpeg', 0.88);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('This photo format is not supported by your browser')); };
+      img.src = url;
+    });
+  }
+
+  f.addEventListener('change', async function () {
+    var files = Array.prototype.slice.call(f.files, 0, 50);
+    if (!files.length) return;
+    var done = 0, ok = 0, count = 0;
+    bar.style.width = '0%';
+    for (var i = 0; i < files.length; i++) {
+      var tile = document.createElement('div'), im = document.createElement('img');
+      im.src = URL.createObjectURL(files[i]);
+      tile.appendChild(im); g.insertBefore(tile, g.firstChild);
+      st.textContent = 'Sending ' + (i + 1) + ' of ' + files.length + '…';
+      try {
+        var blob = await shrink(files[i]);
+        var r = await fetch('/' + CODE + '/upload', { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
+        var j = await r.json().catch(function () { return {}; });
+        if (r.ok && j.ok) { ok++; count = j.count; tile.className = 'ok'; } else { tile.className = 'bad'; }
+      } catch (e) { tile.className = 'bad'; }
+      done++;
+      bar.style.width = Math.round(done / files.length * 100) + '%';
+    }
+    st.textContent = ok === files.length
+      ? 'Done. ' + count + ' photo' + (count === 1 ? '' : 's') + ' on your TV.'
+      : ok + ' of ' + files.length + ' sent. Is the Photo Drop screen still open on the TV?';
+    f.value = '';
+  });
+})();
+</script>
+</body>
+</html>

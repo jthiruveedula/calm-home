@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Calm Home: no permissions at all. It cannot reach the network or read anything but the app list. -->
+<!-- Calm Home asks for one permission: INTERNET, used only by Photo Drop to receive photos from a phone on the
+     same Wi-Fi while the Photo Drop screen is open. It never connects out to the internet. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jay.calmhome">
+
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />

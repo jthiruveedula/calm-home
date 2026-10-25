@@ -6,7 +6,7 @@ import android.content.SharedPreferences;
 /** Everything chosen on the Customize screen, saved on the TV. Reads are range-checked. */
 final class Settings {
     static final String CLOCK = "f_clock", DATE = "f_date", GREETING = "f_greeting",
-            PROFILE = "f_profile", PHOTO = "f_photo", QUIET = "f_quiet", AMBIENT = "f_ambient";
+            PROFILE = "f_profile", PHOTO = "f_photo", QUIET = "f_quiet", AMBIENT = "f_ambient", SLIDES = "f_slides";
 
     private final SharedPreferences p;
 

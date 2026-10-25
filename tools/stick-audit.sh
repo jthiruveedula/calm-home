@@ -39,9 +39,9 @@ k KEYCODE_BACK; expect_log "screen home" "Back returns Home"
 reset; k KEYCODE_DPAD_UP KEYCODE_DPAD_CENTER; expect_log "select scene-" "Photo arrow changes the scene"
 
 echo "== Quick settings rows"
-names=("Wi-Fi" "Remotes & Bluetooth" "Applications" "My Fire TV" "Ambient screen" "Customize" "All settings")
-want=("NetworkActivity" "ControllersAndBluetoothActivity" "ApplicationsActivity" "DeviceActivity" "#ambient" "#custom" "#all")
-for i in 0 1 2 3 4 5 6; do
+names=("Wi-Fi" "Remotes & Bluetooth" "Applications" "My Fire TV" "Ambient screen" "Photo Drop" "Customize" "All settings")
+want=("NetworkActivity" "ControllersAndBluetoothActivity" "ApplicationsActivity" "DeviceActivity" "#ambient" "#drop" "#custom" "#all")
+for i in 0 1 2 3 4 5 6 7; do
   reset; k KEYCODE_DPAD_UP KEYCODE_DPAD_UP KEYCODE_DPAD_CENTER
   [ $i = 0 ] && expect_log "screen quick" "Gear opens Quick settings"
   for ((d = 0; d < i; d++)); do k KEYCODE_DPAD_DOWN; done
@@ -53,6 +53,16 @@ for i in 0 1 2 3 4 5 6; do
       expect_log "ambient off (key)" "Ambient row shows the clock; a key wakes it"
       expect_fg $APP "Waking key does not launch anything" 1.5 ;;
     "#custom") expect_log "screen custom" "Customize row opens Customize" ;;
+    "#drop")
+      expect_log "screen drop" "Photo Drop row opens Photo Drop"
+      sleep 1; "$ADB" -s "$S" exec-out screencap -p > /tmp/calm-drop.png
+      url=$(zbarimg -q --raw /tmp/calm-drop.png 2>/dev/null)
+      echo "$url" | grep -qE '^http://[0-9.]+:[0-9]+/[0-9]{6}$'; ok $? "QR code on the TV decodes to the upload link" "$url"
+      code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$url"); [ "$code" = 200 ]; ok $? "Upload page loads from the QR link" "$code"
+      bad=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "${url%/*}/000000"); [ "$bad" = 403 ]; ok $? "A wrong code is refused" "$bad"
+      junk=$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST --data-binary 'not a photo at all' "$url/upload"); [ "$junk" = 415 ]; ok $? "Non-images are refused" "$junk"
+      k KEYCODE_BACK; sleep 1
+      gone=$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$url" || true); [ "$gone" = 000 ]; ok $? "Server stops when you leave Photo Drop" "$gone" ;;
     "#all") expect_fg "com.amazon.tv.launcher" "All settings opens Fire TV Settings (inside Amazon's home)"
       reset ;;
     *)

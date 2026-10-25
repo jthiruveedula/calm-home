@@ -37,7 +37,8 @@ It follows the "Liquid Glass" design: a clock, softly moving colour scenes, glas
 favourite apps and an All apps screen. On Fire TV it is a normal app you open from Your Apps (Fire
 OS does not let any app replace Amazon's Home button); on Android TV it can be the launcher.
 
-- **No permissions at all.** No network, no storage, no accounts. About 80 KB.
+- **Private by design.** One permission (network), used only by Photo Drop to receive photos from a phone on
+  your Wi-Fi while that screen is open. No accounts, no analytics, never connects out. About 100 KB.
 - **Reversible.** Uninstall it and nothing else on the TV has changed.
 - **Pure Android, no libraries, no Gradle.** `aapt2 -> javac -> d8 -> zipalign -> apksigner`.
 
@@ -46,6 +47,8 @@ OS does not let any app replace Amazon's Home button); on Android TV it can be t
 | ![Home](docs/img/home-focus.jpg) | ![Quick settings](docs/img/quick.jpg) | ![Ambient](docs/img/ambient.jpg) |
 | **All apps** | **Customize** | |
 | ![All apps](docs/img/apps.jpg) | ![Customize](docs/img/customize.jpg) | |
+| **Photo Drop** | **Slideshow** | |
+| ![Photo Drop](docs/img/drop.jpg) | ![Slideshow](docs/img/slideshow.jpg) | |
 
 ## Screens
 
@@ -53,7 +56,8 @@ OS does not let any app replace Amazon's Home button); on Android TV it can be t
 |---|---|
 | Home | Clock, date and greeting, scene control. **Continue**: a large card for the favourite you opened last, washed in that app's colour, with when you last opened it. Favorites row, All apps, Quick settings and Customize buttons |
 | Quick settings | Gear button. Glass side panel: Wi-Fi & network, Remotes & Bluetooth, Applications, My Fire TV (updates, restart), Ambient screen, Customize, All settings |
-| Ambient screen | After 3 idle minutes on Home (or from Quick settings): a large, slowly drifting clock over the scenes. The first button press only wakes it |
+| Photo Drop | Quick settings > Photo Drop shows a QR code. Scan it with your phone, pick photos, and they appear on the TV (resized on the phone, re-encoded on the TV, kept privately, up to 200). The link has a 6-digit code and works only while the screen is open |
+| Ambient screen | After 3 idle minutes on Home (or from Quick settings): a large, slowly drifting clock over the scenes, or a slideshow of your Photo Drop photos with a slow push-in. The first button press only wakes it |
 | All apps | Every installed app. Sort by Recently opened, A-Z or Pinned first. Press Menu on an app to pin or unpin it |
 | Customize | Toggle Clock, Date, Greeting, Profile, Photo controls, Quiet hours, Ambient screen. Pick scenes, motion, change interval, glass level and accent colour |
 
@@ -71,7 +75,7 @@ unpins, Back goes to Home (and from Home leaves the app).
 ## Build and test
 
 ```bash
-./test.sh              # 1,867 desktop checks on the pure-Java core
+./test.sh              # 2,115 desktop checks, plus QR codes decoded by zbarimg
 ./tools/mutate.sh      # plants 32 bugs one at a time; every one must be caught
 ./build.sh             # runs the tests, then builds build/CalmHome.apk
 npm test               # CLI unit tests

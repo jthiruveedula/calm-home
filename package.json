@@ -1,6 +1,6 @@
 {
   "name": "calm-home",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Ad-free, zero-permission home screen for Fire TV and Android TV, plus a one-command installer, app catalog and reversible debloat.",
   "bin": {
     "calm-home": "cli/calm-home.js"

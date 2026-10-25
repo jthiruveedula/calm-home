@@ -102,7 +102,7 @@
   </nav>
 
   <header>
-    <div><span class="pill">Fire TV</span><span class="pill">Android TV</span><span class="pill">0 permissions</span><span class="pill">80 KB</span></div>
+    <div><span class="pill">Fire TV</span><span class="pill">Android TV</span><span class="pill">No tracking</span><span class="pill">100 KB</span></div>
     <h1>Your TV, <b>without the noise.</b></h1>
     <p class="lede">Calm Home is a quiet, ad-free home screen for Amazon Fire TV and Android TV: your apps, a clock and softly moving light. No banners, no promos, no tracking. One command installs it.</p>
     <div class="cmd"><code id="hero-cmd">npx github:jthiruveedula/calm-home install</code><button data-copy="hero-cmd">Copy</button></div>
@@ -118,7 +118,8 @@
       <div class="card"><div class="ico">✦</div><h3>Liquid Glass motion</h3><p>Spring-loaded focus, a soft glow, gentle parallax and staggered entrances. About 0.5% slow frames on a 2018 stick.</p></div>
       <div class="card"><div class="ico">☾</div><h3>Ambient screen</h3><p>After three idle minutes a large, drifting clock fades in over the scenes. The first button only wakes it.</p></div>
       <div class="card"><div class="ico">⚙</div><h3>Quick settings</h3><p>Wi-Fi, Bluetooth remotes, apps and system updates in a glass side panel, one press from Home.</p></div>
-      <div class="card"><div class="ico">⌂</div><h3>Zero permissions</h3><p>No network, storage or account access at all. It cannot show ads because it cannot reach the internet.</p></div>
+      <div class="card"><div class="ico">▣</div><h3>Photo Drop</h3><p>Scan the QR code on the TV, pick photos on your phone, and they play as a slow slideshow on the ambient screen. Over your Wi-Fi only.</p></div>
+      <div class="card"><div class="ico">⌂</div><h3>Private by design</h3><p>No ads, accounts or analytics. Its one network permission only receives photos on your Wi-Fi while Photo Drop is open; it never connects out.</p></div>
       <div class="card"><div class="ico">↺</div><h3>Fully reversible</h3><p>Uninstall in one command. The optional debloat only disables packages and keeps a backup to restore.</p></div>
     </div>
   </section>
@@ -132,6 +133,8 @@
       <figure><img src="img/ambient.jpg" alt="Ambient clock screen" loading="lazy"><figcaption>Ambient screen after 3 idle minutes</figcaption></figure>
       <figure><img src="img/apps.jpg" alt="All apps grid" loading="lazy"><figcaption>All apps: sort, pin and unpin with Menu</figcaption></figure>
       <figure><img src="img/customize.jpg" alt="Customize screen" loading="lazy"><figcaption>Customize: clock, scenes, motion, glass, accent</figcaption></figure>
+      <figure><img src="img/drop.jpg" alt="Photo Drop screen with QR code" loading="lazy"><figcaption>Photo Drop: scan, pick photos, done</figcaption></figure>
+      <figure><img src="img/slideshow.jpg" alt="Photo slideshow on the ambient screen" loading="lazy"><figcaption>Your photos as the ambient slideshow</figcaption></figure>
     </div>
   </section>
 
@@ -168,6 +171,7 @@ npx github:jthiruveedula/calm-home debloat --dry-run</code></pre>
     <h2>Good to know</h2>
     <details><summary>Does it replace Amazon's Home button?</summary><p>No. Fire OS protects Amazon's launcher, so the Home button still opens it. Calm Home is the app you live in: open it from Your Apps, and Back from any app returns to it. On Android TV you can set it as the default launcher.</p></details>
     <details><summary>Will it remove ads inside YouTube, Netflix or Prime Video?</summary><p>No app can remove ads inside other apps. For YouTube, the catalog's SmartTube client blocks them. For the rest of the device, point it at an ad-blocking DNS such as AdGuard (94.140.14.14 / 94.140.15.15) in Settings › Network.</p></details>
+    <details><summary>How does Photo Drop keep my photos private?</summary><p>The TV only listens while the Photo Drop screen is open, only on your local network, and only on a link with a fresh 6-digit code. Photos are resized on your phone, checked and re-encoded on the TV (which strips location data), and stored in Calm Home's private storage. Nothing goes to the internet. Bluetooth transfer is not possible because Fire OS switches that Bluetooth service off.</p></details>
     <details><summary>Is the debloat safe?</summary><p>It only runs <code>pm disable-user</code> on a curated list, never uninstalls, and saves a backup. Streaming apps, the Appstore, settings and system updates keep working. <code>restore</code> re-enables everything.</p></details>
     <details><summary>Why does the Fire TV tile show a grey placeholder after an update?</summary><p>Fire OS caches app icons. Restart the TV (hold Select + Play for 5 seconds) and the Calm Home logo comes back.</p></details>
   </section>
