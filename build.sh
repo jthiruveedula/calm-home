@@ -13,7 +13,7 @@ fi
 export PATH="$JAVA_HOME/bin:$PATH"
 KS="${KEYSTORE:-$HOME/.android/calmhome.keystore}"
 VERSION_CODE="${VERSION_CODE:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
-VERSION_NAME="${VERSION_NAME:-0.1.$VERSION_CODE}"
+VERSION_NAME="${VERSION_NAME:-$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' package.json)}"
 
 for f in "$BT/aapt2" "$BT/d8" "$BT/zipalign" "$BT/apksigner" "$JAR"; do
   [ -e "$f" ] || { echo "missing $f (install: sdkmanager \"platforms;android-34\" \"build-tools;34.0.0\")" >&2; exit 1; }
