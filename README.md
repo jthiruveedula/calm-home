@@ -1,13 +1,51 @@
 # Calm Home
 
-A clean, ad-free app launcher for an Amazon Fire TV Stick, written from scratch. It follows the
-"Liquid Glass" design: a clock, softly moving colour scenes, glass tiles, your favourite apps,
-and an All apps screen. It is a normal app you open from the Fire TV apps list (Fire OS does not
-let any app replace Amazon's Home button).
+A calm, ad-free home screen for **Amazon Fire TV** and **Android TV**, written from scratch, plus a
+one-command installer with an app catalog and a reversible debloat.
+
+**Website:** https://jthiruveedula.github.io/calm-home/
+
+![Calm Home on a Fire TV Stick 4K](docs/img/home.jpg)
+
+## Install
+
+On the TV, turn on **ADB debugging** (Fire TV: Settings > My Fire TV > Developer options). Then, on a
+computer on the same Wi-Fi with Node 18+:
+
+```bash
+npx github:jthiruveedula/calm-home install
+```
+
+It finds the TV, connects (accept the prompt on the TV), downloads the latest release, verifies its
+SHA-256 and installs it. If `adb` is missing it offers to fetch Google's platform-tools.
+
+| Command | What it does |
+|---|---|
+| `scan` | Find TVs with network ADB on your Wi-Fi |
+| `install` | Install or update Calm Home (`--apk <file>` for a local build) |
+| `status` | Device, DNS, installed apps, debloat state |
+| `apps`, `add <app>` | App catalog; `add smarttube` installs the right CPU build, checksum-verified |
+| `debloat` | Fire TV: disable 45 Amazon telemetry/ads/promo packages, reversible (`--dry-run`) |
+| `restore` | Undo the last debloat from its backup (`--all` for the whole list) |
+| `sideload <apk>`, `uninstall [app]` | Install any APK; remove Calm Home or a catalog app |
+
+Add `--device <ip>` when more than one TV is on the network, `--yes` to skip prompts.
+
+## What it is
+
+It follows the "Liquid Glass" design: a clock, softly moving colour scenes, glass tiles, your
+favourite apps and an All apps screen. On Fire TV it is a normal app you open from Your Apps (Fire
+OS does not let any app replace Amazon's Home button); on Android TV it can be the launcher.
 
 - **No permissions at all.** No network, no storage, no accounts. About 80 KB.
-- **Reversible.** Uninstall it and nothing else on the stick has changed.
+- **Reversible.** Uninstall it and nothing else on the TV has changed.
 - **Pure Android, no libraries, no Gradle.** `aapt2 -> javac -> d8 -> zipalign -> apksigner`.
+
+| Home | Quick settings | Ambient |
+|---|---|---|
+| ![Home](docs/img/home-focus.jpg) | ![Quick settings](docs/img/quick.jpg) | ![Ambient](docs/img/ambient.jpg) |
+| **All apps** | **Customize** | |
+| ![All apps](docs/img/apps.jpg) | ![Customize](docs/img/customize.jpg) | |
 
 ## Screens
 
@@ -36,6 +74,7 @@ unpins, Back goes to Home (and from Home leaves the app).
 ./test.sh              # 1,867 desktop checks on the pure-Java core
 ./tools/mutate.sh      # plants 32 bugs one at a time; every one must be caught
 ./build.sh             # runs the tests, then builds build/CalmHome.apk
+npm test               # CLI unit tests
 ```
 
 Needs JDK 17 and the Android SDK (`platforms;android-34`, `build-tools;34.0.0`):
@@ -50,7 +89,7 @@ and checks what really opened (foreground activity, or Calm Home's own log for i
 
 Logo: `python3 tools/make-logo.py` draws the banner and icon PNGs (Fire OS cannot show vector banners).
 
-## Install on the Fire Stick
+## Install manually with adb
 
 1. Fire Stick: Settings > My Fire TV > Developer options > ADB debugging ON.
 2. `adb connect <stick-ip>:5555`, accept the prompt on the TV.

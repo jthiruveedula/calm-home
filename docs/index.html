@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calm Home: an ad-free home screen for Fire TV</title>
+<meta name="description" content="A calm, ad-free, zero-permission home screen for Amazon Fire TV and Android TV, with a one-command installer, an app catalog and a reversible debloat.">
+<meta property="og:title" content="Calm Home">
+<meta property="og:description" content="An ad-free, zero-permission home screen for Fire TV and Android TV. One command to install.">
+<meta property="og:image" content="img/home.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23121530'/%3E%3Cpath d='M20 7a10 10 0 1 0 6 16 8 8 0 1 1-6-16z' fill='%23fff4d6'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --ink: #05070d; --bg: #070812; --panel: rgba(255,255,255,.06); --line: rgba(255,255,255,.12);
+    --text: #f4f5fb; --muted: rgba(244,245,251,.68); --accent: #7fd1ff; --warm: #ffb86b; --moon: #fff4d6;
+    --r: 22px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  .sky { position: fixed; inset: -20%; z-index: -1; filter: blur(80px); opacity: .55; pointer-events: none;
+    background:
+      radial-gradient(40% 40% at 20% 30%, #2d4bff 0, transparent 70%),
+      radial-gradient(35% 35% at 75% 20%, #7a3cff 0, transparent 70%),
+      radial-gradient(40% 40% at 70% 80%, #ff7a45 0, transparent 70%);
+    animation: drift 40s ease-in-out infinite alternate; }
+  @keyframes drift { to { transform: translate3d(4%, -3%, 0) scale(1.06); } }
+  @media (prefers-reduced-motion: reduce) { .sky { animation: none; } }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -.01em; color: var(--text); }
+  .brand svg { width: 30px; height: 30px; }
+  nav .links { display: flex; gap: 22px; font-size: 15px; }
+  nav .links a { color: var(--muted); }
+  header { padding: 64px 0 40px; text-align: center; }
+  h1 { font-size: clamp(40px, 7vw, 76px); line-height: 1.02; margin: 0 0 18px; letter-spacing: -.035em; font-weight: 300; }
+  h1 b { font-weight: 600; }
+  .lede { max-width: 640px; margin: 0 auto 32px; color: var(--muted); font-size: 19px; }
+  .cmd { display: inline-flex; align-items: center; gap: 12px; max-width: 100%;
+    background: rgba(0,0,0,.45); border: 1px solid var(--line); border-radius: 999px;
+    padding: 10px 10px 10px 22px; font: 15px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .cmd code { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cmd button, .copy { cursor: pointer; border: 0; border-radius: 999px; padding: 8px 16px; font: 600 14px/1 inherit;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--text); color: var(--ink); }
+  .note { color: var(--muted); font-size: 14px; margin-top: 14px; }
+  .shot { margin: 48px auto 0; border-radius: 26px; overflow: hidden; border: 1px solid var(--line);
+    box-shadow: 0 40px 120px rgba(0,0,0,.55), 0 0 0 10px rgba(255,255,255,.03); }
+  .shot img { display: block; width: 100%; height: auto; }
+  section { padding: 72px 0 8px; }
+  h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -.02em; font-weight: 500; margin: 0 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 32px; max-width: 680px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 22px;
+    backdrop-filter: blur(12px); }
+  .card h3 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 14px;
+    background: rgba(127,209,255,.14); color: var(--accent); font-size: 20px; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  figure { margin: 0; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: #000; }
+  figure img { display: block; width: 100%; height: auto; transition: transform .5s ease; }
+  figure:hover img { transform: scale(1.03); }
+  figcaption { padding: 12px 16px; font-size: 14px; color: var(--muted); background: rgba(255,255,255,.04); }
+  .steps { counter-reset: s; display: grid; gap: 14px; }
+  .step { position: relative; padding: 20px 22px 20px 70px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); }
+  .step::before { counter-increment: s; content: counter(s); position: absolute; left: 22px; top: 20px; width: 32px; height: 32px;
+    border-radius: 50%; display: grid; place-items: center; background: var(--text); color: var(--ink); font-weight: 700; }
+  .step h3 { margin: 0 0 4px; font-size: 17px; }
+  .step p { margin: 0; color: var(--muted); font-size: 15px; }
+  pre { margin: 10px 0 0; background: rgba(0,0,0,.5); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+    overflow-x: auto; font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #dfe6ff; position: relative; }
+  pre .copy { position: absolute; top: 8px; right: 8px; padding: 6px 12px; font-size: 12px; opacity: .85; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  td { padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td:first-child { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--moon); white-space: nowrap; width: 1%; }
+  td:last-child { color: var(--muted); }
+  details { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px 20px; margin-bottom: 10px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { color: var(--muted); margin: 10px 0 0; }
+  footer { padding: 64px 0 48px; color: var(--muted); font-size: 14px; text-align: center; }
+  .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 13px; border: 1px solid var(--line); color: var(--muted); margin: 0 4px 8px; }
+  @media (max-width: 640px) { nav .links { display: none; } .cmd { font-size: 13px; padding-left: 14px; } header { padding-top: 32px; } }
+</style>
+</head>
+<body>
+<div class="sky" aria-hidden="true"></div>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="#">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#121530"/><path d="M20 7a10 10 0 1 0 6 16 8 8 0 1 1-6-16z" fill="#fff4d6"/></svg>
+      Calm Home
+    </a>
+    <div class="links">
+      <a href="#features">Features</a><a href="#screens">Screens</a><a href="#install">Install</a><a href="#cli">CLI</a><a href="https://github.com/jthiruveedula/calm-home">GitHub</a>
+    </div>
+  </nav>
+
+  <header>
+    <div><span class="pill">Fire TV</span><span class="pill">Android TV</span><span class="pill">0 permissions</span><span class="pill">80 KB</span></div>
+    <h1>Your TV, <b>without the noise.</b></h1>
+    <p class="lede">Calm Home is a quiet, ad-free home screen for Amazon Fire TV and Android TV: your apps, a clock and softly moving light. No banners, no promos, no tracking. One command installs it.</p>
+    <div class="cmd"><code id="hero-cmd">npx github:jthiruveedula/calm-home install</code><button data-copy="hero-cmd">Copy</button></div>
+    <p class="note">Needs Node 18+ on your computer and ADB debugging on the TV. The CLI fetches Android's adb for you if it is missing.</p>
+    <div class="shot"><img src="img/home.jpg" alt="Calm Home on a Fire TV: clock, Continue card for SmartTube, favourites Netflix, Prime Video, Apple TV" width="1600" height="900"></div>
+  </header>
+
+  <section id="features">
+    <h2>Calm by design</h2>
+    <p class="sub">Built from scratch for a 2018 Fire TV Stick 4K and tuned until it never stutters. Everything runs on the TV; nothing is sent anywhere.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">◐</div><h3>Continue where you left off</h3><p>A large card for the app you opened last, washed in that app's own colour, with when you opened it.</p></div>
+      <div class="card"><div class="ico">✦</div><h3>Liquid Glass motion</h3><p>Spring-loaded focus, a soft glow, gentle parallax and staggered entrances. About 0.5% slow frames on a 2018 stick.</p></div>
+      <div class="card"><div class="ico">☾</div><h3>Ambient screen</h3><p>After three idle minutes a large, drifting clock fades in over the scenes. The first button only wakes it.</p></div>
+      <div class="card"><div class="ico">⚙</div><h3>Quick settings</h3><p>Wi-Fi, Bluetooth remotes, apps and system updates in a glass side panel, one press from Home.</p></div>
+      <div class="card"><div class="ico">⌂</div><h3>Zero permissions</h3><p>No network, storage or account access at all. It cannot show ads because it cannot reach the internet.</p></div>
+      <div class="card"><div class="ico">↺</div><h3>Fully reversible</h3><p>Uninstall in one command. The optional debloat only disables packages and keeps a backup to restore.</p></div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>Screens</h2>
+    <p class="sub">Real captures from a Fire TV Stick 4K, not mock-ups.</p>
+    <div class="gallery">
+      <figure><img src="img/home-focus.jpg" alt="Home with a favourite focused" loading="lazy"><figcaption>Home: favourites with spring focus and glow</figcaption></figure>
+      <figure><img src="img/quick.jpg" alt="Quick settings panel" loading="lazy"><figcaption>Quick settings: the gear button</figcaption></figure>
+      <figure><img src="img/ambient.jpg" alt="Ambient clock screen" loading="lazy"><figcaption>Ambient screen after 3 idle minutes</figcaption></figure>
+      <figure><img src="img/apps.jpg" alt="All apps grid" loading="lazy"><figcaption>All apps: sort, pin and unpin with Menu</figcaption></figure>
+      <figure><img src="img/customize.jpg" alt="Customize screen" loading="lazy"><figcaption>Customize: clock, scenes, motion, glass, accent</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="install">
+    <h2>Install in two minutes</h2>
+    <p class="sub">Works from macOS, Windows or Linux. Your computer and TV must be on the same Wi-Fi.</p>
+    <div class="steps">
+      <div class="step"><h3>Turn on ADB debugging on the TV</h3><p>Fire TV: Settings › My Fire TV › Developer options › ADB debugging. (No Developer options? Open Settings › My Fire TV › About and press Select on the device name 7 times.) Android TV: Settings › Device Preferences › About › press Build 7 times, then Developer options › USB debugging.</p></div>
+      <div class="step"><h3>Run the installer</h3><p>It finds the TV on your network, connects, downloads the latest release, checks its SHA-256 and installs it.</p>
+        <pre><button class="copy" data-copy="c1">Copy</button><code id="c1">npx github:jthiruveedula/calm-home install</code></pre></div>
+      <div class="step"><h3>Accept the prompt on the TV</h3><p>Tick "Always allow from this computer" and press OK. Calm Home opens by itself. On Fire TV, find it later under Your Apps.</p></div>
+    </div>
+  </section>
+
+  <section id="cli">
+    <h2>The calm-home CLI</h2>
+    <p class="sub">Zero dependencies. Every download is checksum-verified before it touches your TV.</p>
+    <table>
+      <tr><td>scan</td><td>Find TVs with network ADB on your Wi-Fi</td></tr>
+      <tr><td>install</td><td>Install or update Calm Home (latest release)</td></tr>
+      <tr><td>status</td><td>Device, DNS, installed apps and debloat state</td></tr>
+      <tr><td>apps · add &lt;app&gt;</td><td>App catalog. <code>add smarttube</code> installs the ad-free YouTube client, picking the right CPU build</td></tr>
+      <tr><td>debloat</td><td>Fire TV only: disable 45 Amazon telemetry, ads and promo packages. Reversible; try <code>--dry-run</code></td></tr>
+      <tr><td>restore</td><td>Undo the last debloat from its backup</td></tr>
+      <tr><td>sideload &lt;apk&gt;</td><td>Install any APK file</td></tr>
+      <tr><td>uninstall [app]</td><td>Remove Calm Home or a catalog app</td></tr>
+    </table>
+    <pre><button class="copy" data-copy="c2">Copy</button><code id="c2">npx github:jthiruveedula/calm-home status --device 192.168.1.20
+npx github:jthiruveedula/calm-home add smarttube
+npx github:jthiruveedula/calm-home debloat --dry-run</code></pre>
+  </section>
+
+  <section id="faq">
+    <h2>Good to know</h2>
+    <details><summary>Does it replace Amazon's Home button?</summary><p>No. Fire OS protects Amazon's launcher, so the Home button still opens it. Calm Home is the app you live in: open it from Your Apps, and Back from any app returns to it. On Android TV you can set it as the default launcher.</p></details>
+    <details><summary>Will it remove ads inside YouTube, Netflix or Prime Video?</summary><p>No app can remove ads inside other apps. For YouTube, the catalog's SmartTube client blocks them. For the rest of the device, point it at an ad-blocking DNS such as AdGuard (94.140.14.14 / 94.140.15.15) in Settings › Network.</p></details>
+    <details><summary>Is the debloat safe?</summary><p>It only runs <code>pm disable-user</code> on a curated list, never uninstalls, and saves a backup. Streaming apps, the Appstore, settings and system updates keep working. <code>restore</code> re-enables everything.</p></details>
+    <details><summary>Why does the Fire TV tile show a grey placeholder after an update?</summary><p>Fire OS caches app icons. Restart the TV (hold Select + Play for 5 seconds) and the Calm Home logo comes back.</p></details>
+  </section>
+
+  <footer>
+    Made with care by <a href="https://github.com/jthiruveedula">Jagadeesh Thiruveedula</a> ·
+    <a href="https://github.com/jthiruveedula/calm-home">Source on GitHub</a> · MIT license<br>
+    Not affiliated with Amazon or Google. Fire TV is a trademark of Amazon.com, Inc.
+  </footer>
+</div>
+<script>
+  document.querySelectorAll('[data-copy]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = document.getElementById(b.getAttribute('data-copy')).textContent;
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () {
+        var o = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = o; }, 1400);
+      }).catch(function () {});
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "calm-home": {
+    "name": "Calm Home",
+    "about": "Ad-free, zero-permission home screen for Fire TV and Android TV",
+    "repo": "jthiruveedula/calm-home",
+    "package": "com.jay.calmhome",
+    "asset": "CalmHome\\.apk",
+    "checksum": "sha256-asset"
+  },
+  "smarttube": {
+    "name": "SmartTube",
+    "about": "Open-source YouTube client for TVs with ad blocking and SponsorBlock",
+    "repo": "yuliskov/SmartTube",
+    "package": "org.smarttube.stable",
+    "asset": "SmartTube_stable_[0-9.]+_{abi}\\.apk",
+    "checksum": "release-notes",
+    "note": "Unofficial client; Google can break it. Updating usually fixes playback."
+  }
+}

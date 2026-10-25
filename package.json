@@ -1,0 +1,34 @@
+{
+  "name": "calm-home",
+  "version": "0.2.2",
+  "description": "Ad-free, zero-permission home screen for Fire TV and Android TV, plus a one-command installer, app catalog and reversible debloat.",
+  "bin": {
+    "calm-home": "cli/calm-home.js"
+  },
+  "files": [
+    "cli/"
+  ],
+  "scripts": {
+    "test": "node cli/test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "fire-tv",
+    "firestick",
+    "android-tv",
+    "launcher",
+    "adb",
+    "ad-free",
+    "debloat",
+    "smarttube"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jthiruveedula/calm-home.git"
+  },
+  "homepage": "https://jthiruveedula.github.io/calm-home/",
+  "license": "MIT",
+  "author": "Jagadeesh Thiruveedula"
+}
